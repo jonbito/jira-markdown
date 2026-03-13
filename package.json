@@ -1,5 +1,5 @@
 {
-  "name": "jira-markdown",
+  "name": "@jonbito/jira-markdown",
   "version": "0.1.0",
   "description": "Bun CLI for syncing markdown files with Jira issues.",
   "type": "module",

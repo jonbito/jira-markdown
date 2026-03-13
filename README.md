@@ -18,8 +18,10 @@ Replace `ENG` below with your Jira project key.
 Install the published CLI globally:
 
 ```bash
-npm install --global jira-markdown
+npm install --global @jonbito/jira-markdown
 ```
+
+The npm package name is scoped, but the installed command remains `jira-markdown`.
 
 For local development in this repository:
 
