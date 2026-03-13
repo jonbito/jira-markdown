@@ -7,6 +7,7 @@ import {
   buildLocalAttachmentSignature,
   buildRemoteAttachmentSignature
 } from "./attachments";
+import { loadSyncHistory } from "./sync-history";
 import {
   pullJiraToMarkdown,
   pushMarkdownToJira,
@@ -1501,6 +1502,128 @@ describe("field resolver coverage", () => {
     expect(issueFetchCall?.url).toContain("priority");
     expect(updatePayload.fields?.priority).toBeUndefined();
     expect(updatePayload.fields?.description).toBeDefined();
+  });
+
+  test("push dry-run skips updates when every field is pruned", async () => {
+    await setupWorkspace({
+      fileContent: "---\nissue: ENG-1\nsummary: Local summary\n---\nRemote body\n",
+      fileName: "ENG-1 - Local summary.md",
+      issueSummary: "Local summary"
+    });
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map((arg) => String(arg)).join(" "));
+    };
+
+    try {
+      const { calls } = createSequentialFetch([
+        jsonResponse(200, [
+          { id: "summary", name: "Summary" },
+          { id: "description", name: "Description" }
+        ]),
+        jsonResponse(200, createIssueTypesPage()),
+        jsonResponse(
+          200,
+          createIssueRecord({
+            description: "Remote body",
+            summary: "Local summary",
+            updated: "2026-03-10T00:00:00.000Z"
+          })
+        ),
+        jsonResponse(200, {
+          fields: {
+            description: {
+              name: "Description",
+              operations: ["set"]
+            },
+            summary: {
+              name: "Summary",
+              operations: ["set"]
+            }
+          }
+        })
+      ]);
+
+      const results = await pushMarkdownToJira({ dryRun: true });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        action: "skip",
+        issueKey: "ENG-1",
+        summary: "Local summary"
+      });
+      expect(calls.find((call) => call.method === "PUT")).toBeUndefined();
+      expect(logs).toEqual([]);
+    } finally {
+      console.log = originalLog;
+    }
+  });
+
+  test("push records equivalent no-op updates as skips", async () => {
+    const { filePath, historyPath } = await setupWorkspace({
+      fileContent: "---\nissue: ENG-1\nsummary: Local summary\n---\nRemote body\n",
+      fileName: "ENG-1 - Local summary.md",
+      issueSummary: "Local summary"
+    });
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map((arg) => String(arg)).join(" "));
+    };
+
+    try {
+      const { calls } = createSequentialFetch([
+        jsonResponse(200, [
+          { id: "summary", name: "Summary" },
+          { id: "description", name: "Description" }
+        ]),
+        jsonResponse(200, createIssueTypesPage()),
+        jsonResponse(
+          200,
+          createIssueRecord({
+            description: "Remote body",
+            summary: "Local summary",
+            updated: "2026-03-10T00:00:00.000Z"
+          })
+        ),
+        jsonResponse(200, {
+          fields: {
+            description: {
+              name: "Description",
+              operations: ["set"]
+            },
+            summary: {
+              name: "Summary",
+              operations: ["set"]
+            }
+          }
+        })
+      ]);
+
+      const results = await pushMarkdownToJira();
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({
+        action: "skip",
+        issueKey: "ENG-1",
+        summary: "Local summary"
+      });
+      expect(calls.find((call) => call.method === "PUT")).toBeUndefined();
+      expect(logs).toEqual([]);
+
+      const reloaded = await loadSyncHistory(historyPath);
+      const fileStats = await stat(filePath);
+      const fileRecords = Object.values(reloaded.history.files);
+      expect(fileRecords).toHaveLength(1);
+      expect(fileRecords[0]?.lastSyncedMtimeMs).toBe(fileStats.mtimeMs);
+      expect(reloaded.history.stats.push?.skippedUnchanged).toBe(1);
+      expect(reloaded.history.stats.push?.updated).toBe(0);
+    } finally {
+      console.log = originalLog;
+    }
   });
 
   test("push transitions Jira when frontmatter status changes", async () => {

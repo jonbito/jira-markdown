@@ -2440,8 +2440,20 @@ async function applyLocalIssueUpdateToJira(input: {
         )
       : input.localIssue.filePath;
   const actionLabel = input.resultAction === "keep-local" ? "KEEP-LOCAL" : "UPDATE";
+  const hasFieldWrites = Object.keys(fields).length > 0;
+  const hasRemoteWritesPlanned =
+    input.plannedUpdate.attachmentPlan.hasMutations || hasFieldWrites || Boolean(plannedStatus);
 
   if (input.dryRun) {
+    if (!hasRemoteWritesPlanned) {
+      return {
+        action: "skip",
+        filePath: targetFilePath,
+        issueKey,
+        summary: input.localIssue.core.summary
+      };
+    }
+
     console.log(`[DRY RUN] ${actionLabel} ${targetFilePath}`);
     console.log(
       JSON.stringify(
@@ -2463,7 +2475,7 @@ async function applyLocalIssueUpdateToJira(input: {
   }
 
   let remoteWritesPerformed = input.plannedUpdate.attachmentPlan.hasMutations;
-  if (Object.keys(fields).length > 0) {
+  if (hasFieldWrites) {
     await ensureAssigneeIsAssignable(issueKey, fields, input.jira);
     editableFields = await ensureIssueFieldsEditable(
       issueKey,
@@ -2577,11 +2589,15 @@ async function applyLocalIssueUpdateToJira(input: {
     mtimeMs: finalFileStats.mtimeMs,
     projectKey: finalProjectKey
   });
-  input.stats.updated += 1;
+  if (remoteWritesPerformed) {
+    input.stats.updated += 1;
+    console.log(`[${actionLabel}] ${issueKey} <- ${finalFilePath}`);
+  } else {
+    input.stats.skippedUnchanged += 1;
+  }
 
-  console.log(`[${actionLabel}] ${issueKey} <- ${finalFilePath}`);
   return {
-    action: input.resultAction,
+    action: remoteWritesPerformed ? input.resultAction : "skip",
     filePath: finalFilePath,
     issueKey,
     summary: input.localIssue.core.summary
