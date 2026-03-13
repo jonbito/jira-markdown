@@ -1,6 +1,8 @@
 import { readdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
+const ATTACHMENTS_DIRECTORY_NAME = ".attachments";
+
 async function walkMarkdownFiles(directory: string, matches: Set<string>): Promise<void> {
   const entries = await readdir(directory, { withFileTypes: true });
 
@@ -11,6 +13,10 @@ async function walkMarkdownFiles(directory: string, matches: Set<string>): Promi
 
     const filePath = resolve(directory, entry.name);
     if (entry.isDirectory()) {
+      if (entry.name === ATTACHMENTS_DIRECTORY_NAME) {
+        continue;
+      }
+
       await walkMarkdownFiles(filePath, matches);
       continue;
     }

@@ -36,3 +36,8 @@ export async function writeIssueKeyToFrontmatter(
 
   await writeFile(document.filePath, nextRaw, "utf8");
 }
+
+export async function writeMarkdownDocument(document: MarkdownIssueDocument): Promise<void> {
+  const nextRaw = matter.stringify(document.body, document.frontmatter);
+  await writeFile(document.filePath, nextRaw, "utf8");
+}

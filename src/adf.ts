@@ -641,6 +641,145 @@ function parseMarkdownLinkAt(
   };
 }
 
+function parseMarkdownCodeSpanAt(
+  input: string,
+  startIndex: number
+): { end: number } | undefined {
+  if (input[startIndex] !== "`") {
+    return undefined;
+  }
+
+  let fenceLength = 0;
+  while (input[startIndex + fenceLength] === "`") {
+    fenceLength += 1;
+  }
+
+  const closingFence = "`".repeat(fenceLength);
+  const closingIndex = input.indexOf(closingFence, startIndex + fenceLength);
+  if (closingIndex === -1) {
+    return undefined;
+  }
+
+  return {
+    end: closingIndex + fenceLength
+  };
+}
+
+function parseMarkdownFencedCodeBlockAt(
+  input: string,
+  startIndex: number
+): { end: number } | undefined {
+  const fenceCharacter = input[startIndex];
+  if (fenceCharacter !== "`" && fenceCharacter !== "~") {
+    return undefined;
+  }
+
+  const lineStart = input.lastIndexOf("\n", startIndex - 1) + 1;
+  if (!/^[\t ]*$/u.test(input.slice(lineStart, startIndex))) {
+    return undefined;
+  }
+
+  let fenceLength = 0;
+  while (input[startIndex + fenceLength] === fenceCharacter) {
+    fenceLength += 1;
+  }
+  if (fenceLength < 3) {
+    return undefined;
+  }
+
+  const openingLineEnd = input.indexOf("\n", startIndex + fenceLength);
+  if (openingLineEnd === -1) {
+    return { end: input.length };
+  }
+
+  let cursor = openingLineEnd + 1;
+  while (cursor < input.length) {
+    const lineEnd = input.indexOf("\n", cursor);
+    const segmentEnd = lineEnd === -1 ? input.length : lineEnd;
+    let closingFenceStart = cursor;
+    while (
+      closingFenceStart < segmentEnd &&
+      (input[closingFenceStart] === " " || input[closingFenceStart] === "\t")
+    ) {
+      closingFenceStart += 1;
+    }
+
+    let closingFenceLength = 0;
+    while (input[closingFenceStart + closingFenceLength] === fenceCharacter) {
+      closingFenceLength += 1;
+    }
+
+    if (
+      closingFenceLength >= fenceLength &&
+      /^[\t ]*$/u.test(input.slice(closingFenceStart + closingFenceLength, segmentEnd))
+    ) {
+      return {
+        end: lineEnd === -1 ? input.length : lineEnd + 1
+      };
+    }
+
+    if (lineEnd === -1) {
+      return { end: input.length };
+    }
+    cursor = lineEnd + 1;
+  }
+
+  return { end: input.length };
+}
+
+export function rewriteMarkdownLinkHrefs(
+  input: string,
+  rewriteHref: (input: {
+    href: string;
+    kind: "image" | "link";
+    label: string;
+  }) => string | undefined
+): string {
+  let cursor = 0;
+  let rewritten = "";
+
+  while (cursor < input.length) {
+    const fencedCodeBlock = parseMarkdownFencedCodeBlockAt(input, cursor);
+    if (fencedCodeBlock) {
+      rewritten += input.slice(cursor, fencedCodeBlock.end);
+      cursor = fencedCodeBlock.end;
+      continue;
+    }
+
+    const codeSpan = parseMarkdownCodeSpanAt(input, cursor);
+    if (codeSpan) {
+      rewritten += input.slice(cursor, codeSpan.end);
+      cursor = codeSpan.end;
+      continue;
+    }
+
+    const parsed = parseMarkdownLinkAt(input, cursor);
+    if (!parsed) {
+      rewritten += input[cursor] ?? "";
+      cursor += 1;
+      continue;
+    }
+
+    const nextHref = rewriteHref({
+      href: parsed.href,
+      kind: parsed.image ? "image" : "link",
+      label: parsed.label
+    });
+    if (!nextHref || nextHref === parsed.href) {
+      rewritten += input.slice(cursor, parsed.end);
+      cursor = parsed.end;
+      continue;
+    }
+
+    rewritten += parsed.image
+      ? formatMarkdownImage(parsed.label, nextHref)
+      : formatMarkdownTextLink(parsed.label, nextHref);
+    cursor = parsed.end;
+  }
+
+  return rewritten;
+}
+
 function parseAutolinkAt(
   input: string,
   startIndex: number

@@ -1,7 +1,13 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import matter from "gray-matter";
 import { resolveIssueKey } from "./issue-key.js";
+import { inferProjectRootPath } from "./project-path.js";
+
+export interface CanonicalIssuePathSegment {
+  issueKey: string;
+  summary?: string | undefined;
+}
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -19,6 +25,12 @@ function sanitizeIssueSummary(summary: string): string {
   }
 
   return sanitized.slice(0, 120).trimEnd();
+}
+
+function buildIssuePathSegmentLabel(segment: CanonicalIssuePathSegment): string {
+  const issueKey = segment.issueKey.trim().toUpperCase();
+  const summary = asString(segment.summary);
+  return summary ? `${issueKey} - ${sanitizeIssueSummary(summary)}` : issueKey;
 }
 
 function extractIssueKeyFromRaw(
@@ -78,14 +90,41 @@ export function buildCanonicalIssueFilePath(
   summary: string,
   projectKey: string,
   cwd = process.cwd(),
-  rootDir = "issues"
+  rootDir = "issues",
+  ancestors: CanonicalIssuePathSegment[] = []
 ): string {
   return resolve(
     cwd,
     rootDir,
     projectKey.trim().toUpperCase(),
-    `${issueKey} - ${sanitizeIssueSummary(summary)}.md`
+    ...ancestors.map((ancestor) => buildIssuePathSegmentLabel(ancestor)),
+    `${buildIssuePathSegmentLabel({ issueKey, summary })}.md`
   );
+}
+
+async function pruneEmptyIssueDirectories(filePath: string, rootDir: string): Promise<void> {
+  const projectRootPath = inferProjectRootPath(filePath, rootDir);
+  if (!projectRootPath) {
+    return;
+  }
+
+  let currentDirectory = dirname(filePath);
+  const stopDirectory = resolve(projectRootPath);
+
+  while (currentDirectory !== stopDirectory) {
+    const entries = await readdir(currentDirectory);
+    if (entries.length > 0) {
+      return;
+    }
+
+    await rm(currentDirectory, { force: true, recursive: true });
+    const parentDirectory = dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      return;
+    }
+
+    currentDirectory = parentDirectory;
+  }
 }
 
 export function formatPulledIssueMarkdown(input: {
@@ -159,6 +198,7 @@ export async function moveIssueFileToCanonicalPath(input: {
   currentPath: string;
   issueKey: string;
   issueKeyField: string;
+  rootDir?: string | undefined;
   targetPath: string;
 }): Promise<string> {
   if (input.currentPath === input.targetPath) {
@@ -172,6 +212,7 @@ export async function moveIssueFileToCanonicalPath(input: {
     targetPath: input.targetPath
   });
   await rename(input.currentPath, input.targetPath);
+  await pruneEmptyIssueDirectories(input.currentPath, input.rootDir ?? "issues");
   return input.targetPath;
 }
 
@@ -180,6 +221,7 @@ export async function writeIssueFileToCanonicalPath(input: {
   currentPath?: string | undefined;
   issueKey: string;
   issueKeyField: string;
+  rootDir?: string | undefined;
   targetPath: string;
 }): Promise<string> {
   let nextPath = input.targetPath;
@@ -189,6 +231,7 @@ export async function writeIssueFileToCanonicalPath(input: {
       currentPath: input.currentPath,
       issueKey: input.issueKey,
       issueKeyField: input.issueKeyField,
+      rootDir: input.rootDir,
       targetPath: input.targetPath
     });
   } else {

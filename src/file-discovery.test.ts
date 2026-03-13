@@ -65,4 +65,27 @@ describe("collectMarkdownFiles", () => {
       join(issuesDirectory, "ENG", "visible.md")
     ]);
   });
+
+  test("skips markdown files stored under attachment directories", async () => {
+    const directory = await createTempDirectory();
+    const issuesDirectory = join(directory, "issues");
+
+    await mkdir(join(issuesDirectory, "ENG", ".attachments", "ENG-123"), { recursive: true });
+    await mkdir(join(issuesDirectory, "ENG", ".attachments", "_drafts"), { recursive: true });
+    await writeFile(join(issuesDirectory, "ENG", "visible.md"), "", "utf8");
+    await writeFile(
+      join(issuesDirectory, "ENG", ".attachments", "ENG-123", "notes.md"),
+      "",
+      "utf8"
+    );
+    await writeFile(
+      join(issuesDirectory, "ENG", ".attachments", "_drafts", "draft.md"),
+      "",
+      "utf8"
+    );
+
+    expect(await collectMarkdownFiles("issues", directory)).toEqual([
+      join(issuesDirectory, "ENG", "visible.md")
+    ]);
+  });
 });

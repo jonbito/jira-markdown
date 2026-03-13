@@ -1,5 +1,10 @@
 import { describe, expect, test } from "./test-helpers.js";
-import { adfToMarkdown, collectMediaBlocks, markdownToAdf } from "./adf.js";
+import {
+  adfToMarkdown,
+  collectMediaBlocks,
+  markdownToAdf,
+  rewriteMarkdownLinkHrefs
+} from "./adf.js";
 import { buildCoreIssuePayload } from "./issue-payload.js";
 
 describe("markdownToAdf", () => {
@@ -839,6 +844,40 @@ describe("markdownToAdf", () => {
     expect(mediaNode?.attrs?.type).toBe("file");
     expect(mediaNode?.attrs?.alt).toBe("diagram.png");
     expect(mediaNode?.attrs?.id).toBe("pulled-media-id");
+  });
+
+  test("rewrites markdown attachment hrefs when a file moves deeper into the tree", () => {
+    const markdown = [
+      "See [spec.pdf](.attachments/ENG-123/spec.pdf)",
+      "![diagram.png](.attachments/ENG-123/diagram.png)"
+    ].join("\n\n");
+
+    const rewritten = rewriteMarkdownLinkHrefs(markdown, ({ href, kind }) =>
+      kind === "link"
+        ? `../${href}`
+        : href.replace(".attachments/", "../.attachments/")
+    );
+
+    expect(rewritten).toContain("[spec.pdf](../.attachments/ENG-123/spec.pdf)");
+    expect(rewritten).toContain("![diagram.png](../.attachments/ENG-123/diagram.png)");
+  });
+
+  test("does not rewrite href examples inside code spans or fenced code blocks", () => {
+    const markdown = [
+      "See [spec.pdf](.attachments/ENG-123/spec.pdf)",
+      "",
+      "`[example](.attachments/ENG-123/sample.pdf)`",
+      "",
+      "```md",
+      "[sample](.attachments/ENG-123/code.pdf)",
+      "```"
+    ].join("\n");
+
+    const rewritten = rewriteMarkdownLinkHrefs(markdown, ({ href }) => `../${href}`);
+
+    expect(rewritten).toContain("See [spec.pdf](../.attachments/ENG-123/spec.pdf)");
+    expect(rewritten).toContain("`[example](.attachments/ENG-123/sample.pdf)`");
+    expect(rewritten).toContain("[sample](.attachments/ENG-123/code.pdf)");
   });
 });
 

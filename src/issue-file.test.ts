@@ -35,6 +35,24 @@ describe("buildCanonicalIssueFilePath", () => {
 
     expect(filePath).toBe("/tmp/repo/issues/ENG/ENG-123 - Tighten sync error logging.md");
   });
+
+  test("places child issues inside their full ancestor chain", () => {
+    const filePath = buildCanonicalIssueFilePath(
+      "ENG-3",
+      "Nested child",
+      "eng",
+      "/tmp/repo",
+      "issues",
+      [
+        { issueKey: "ENG-1", summary: "Parent epic" },
+        { issueKey: "ENG-2", summary: "Story / planning" }
+      ]
+    );
+
+    expect(filePath).toBe(
+      "/tmp/repo/issues/ENG/ENG-1 - Parent epic/ENG-2 - Story planning/ENG-3 - Nested child.md"
+    );
+  });
 });
 
 describe("formatPulledIssueMarkdown", () => {

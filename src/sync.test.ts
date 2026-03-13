@@ -5,7 +5,8 @@ import { dirname, join, resolve } from "node:path";
 import { persistStoredAuth } from "./auth-store.js";
 import {
   buildLocalAttachmentSignature,
-  buildRemoteAttachmentSignature
+  buildRemoteAttachmentSignature,
+  listLocalAttachmentFiles
 } from "./attachments.js";
 import { loadSyncHistory, toHistoryPath } from "./sync-history.js";
 import {
@@ -853,6 +854,17 @@ describe("modern parent hierarchy support", () => {
         })
       ),
       jsonResponse(201, { id: "10002", key: "ENG-2" }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Parent body",
+          issueKey: "ENG-1",
+          issueTypeName: "Task",
+          projectKey: "ENG",
+          summary: "Parent task",
+          updated: "2026-03-11T00:00:00.000Z"
+        })
+      ),
       new Response(null, { status: 204 }),
       jsonResponse(
         200,
@@ -875,6 +887,13 @@ describe("modern parent hierarchy support", () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       action: "create",
+      filePath: join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-1 - Parent task",
+        "ENG-2 - Child task.md"
+      ),
       issueKey: "ENG-2",
       summary: "Child task"
     });
@@ -929,6 +948,17 @@ describe("modern parent hierarchy support", () => {
         })
       ),
       jsonResponse(201, { id: "10003", key: "ENG-3" }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-1",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Parent epic",
+          updated: "2026-03-11T00:00:00.000Z"
+        })
+      ),
       new Response(null, { status: 204 }),
       jsonResponse(
         200,
@@ -950,6 +980,13 @@ describe("modern parent hierarchy support", () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       action: "create",
+      filePath: join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-1 - Parent epic",
+        "ENG-3 - Story under epic.md"
+      ),
       issueKey: "ENG-3",
       summary: "Story under epic"
     });
@@ -1018,6 +1055,17 @@ describe("modern parent hierarchy support", () => {
           updated: "2026-03-11T00:00:00.000Z"
         })
       ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Parent body",
+          issueKey: "ENG-42",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Parent epic",
+          updated: "2026-03-11T00:00:00.000Z"
+        })
+      ),
       new Response(null, { status: 204 }),
       jsonResponse(
         200,
@@ -1038,6 +1086,13 @@ describe("modern parent hierarchy support", () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       action: "update",
+      filePath: join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-42 - Parent epic",
+        "ENG-1 - Reparent me.md"
+      ),
       issueKey: "ENG-1",
       summary: "Reparent me"
     });
@@ -1050,6 +1105,623 @@ describe("modern parent hierarchy support", () => {
     expect(updatePayload.fields).toEqual({
       parent: { key: "ENG-42" }
     });
+  });
+
+  test("pull stores child issues inside the full ancestor chain", async () => {
+    await setupProjectWorkspace({});
+
+    const { calls } = createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" },
+        { id: "parent", name: "Parent" }
+      ]),
+      jsonResponse(200, createIssueTypesPage()),
+      jsonResponse(200, {
+        issues: [
+          createIssueRecord({
+            description: "Nested body",
+            issueKey: "ENG-3",
+            issueTypeName: "Task",
+            parentKey: "ENG-2",
+            projectKey: "ENG",
+            summary: "Nested child",
+            updated: "2026-03-12T00:00:00.000Z"
+          })
+        ],
+        isLast: true
+      }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Parent body",
+          issueKey: "ENG-2",
+          issueTypeName: "Task",
+          parentKey: "ENG-1",
+          projectKey: "ENG",
+          summary: "Parent story",
+          updated: "2026-03-11T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-1",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-1",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-1",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-1",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-1",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      )
+    ]);
+
+    const results = await pullJiraToMarkdown({
+      projects: ["ENG"]
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      action: "pull",
+      filePath: join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-1 - Root epic",
+        "ENG-2 - Parent story",
+        "ENG-3 - Nested child.md"
+      ),
+      issueKey: "ENG-3",
+      summary: "Nested child"
+    });
+
+    const pulled = await readFile(results[0]?.filePath as string, "utf8");
+    expect(pulled).toContain("issue: ENG-3");
+    expect(pulled).toContain("parent: ENG-2");
+    expect(pulled).toContain("Nested body");
+    expect(calls.filter((call) => call.url.includes("/rest/api/3/issue/ENG-")).length).toBe(2);
+  });
+
+  test("pull preserves a pulled parent's own parent chain for later children", async () => {
+    await setupProjectWorkspace({
+      config: {
+        dir: "issues",
+        projectIssueTypeFieldMap: {
+          ENG: {
+            Epic: {},
+            Task: {},
+            "Sub-task": {}
+          }
+        }
+      }
+    });
+
+    const { calls } = createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" },
+        { id: "parent", name: "Parent" }
+      ]),
+      jsonResponse(200, createIssueTypesPage([
+        {
+          id: "10000",
+          name: "Epic",
+          subtask: false
+        },
+        {
+          id: "10001",
+          name: "Task",
+          subtask: false
+        },
+        {
+          id: "10002",
+          name: "Sub-task",
+          subtask: true
+        }
+      ])),
+      jsonResponse(200, {
+        issues: [
+          createIssueRecord({
+            description: "Task body",
+            issueKey: "ENG-2",
+            issueTypeName: "Task",
+            parentKey: "ENG-1",
+            projectKey: "ENG",
+            summary: "Parent task",
+            updated: "2026-03-11T00:00:00.000Z"
+          }),
+          createIssueRecord({
+            description: "Subtask body",
+            issueKey: "ENG-3",
+            issueTypeName: "Sub-task",
+            issueTypeSubtask: true,
+            parentKey: "ENG-2",
+            projectKey: "ENG",
+            summary: "Nested subtask",
+            updated: "2026-03-12T00:00:00.000Z"
+          })
+        ],
+        isLast: true
+      }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-1",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-1",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      )
+    ]);
+
+    const results = await pullJiraToMarkdown({
+      projects: ["ENG"]
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results.find((result) => result.issueKey === "ENG-2")).toMatchObject({
+      action: "pull",
+      filePath: join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-1 - Root epic",
+        "ENG-2 - Parent task.md"
+      ),
+      issueKey: "ENG-2",
+      summary: "Parent task"
+    });
+    expect(results.find((result) => result.issueKey === "ENG-3")).toMatchObject({
+      action: "pull",
+      filePath: join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-1 - Root epic",
+        "ENG-2 - Parent task",
+        "ENG-3 - Nested subtask.md"
+      ),
+      issueKey: "ENG-3",
+      summary: "Nested subtask"
+    });
+
+    const hierarchyCalls = calls.filter((call) =>
+      call.url.includes("/rest/api/3/issue/ENG-")
+    );
+    expect(hierarchyCalls).toHaveLength(2);
+    expect(hierarchyCalls.every((call) => call.url.includes("/rest/api/3/issue/ENG-1"))).toBe(true);
+  });
+
+  test("pull prefers Jira hierarchy over stale local parent metadata", async () => {
+    await setupProjectWorkspace({
+      config: {
+        dir: "issues",
+        projectIssueTypeFieldMap: {
+          ENG: {
+            Epic: {},
+            Task: {}
+          }
+        }
+      }
+    });
+
+    const staleParentDirectory = join(
+      process.cwd(),
+      "issues",
+      "ENG",
+      "ENG-9 - Old epic"
+    );
+    const staleParentPath = join(staleParentDirectory, "ENG-2 - Old parent.md");
+    await mkdir(staleParentDirectory, { recursive: true });
+    await writeFile(
+      staleParentPath,
+      "---\nissue: ENG-2\nissueType: Task\nparent: ENG-9\nsummary: Old parent\n---\nOld body\n",
+      "utf8"
+    );
+
+    const results = await (async () => {
+      createSequentialFetch([
+        jsonResponse(200, [
+          { id: "summary", name: "Summary" },
+          { id: "description", name: "Description" },
+          { id: "parent", name: "Parent" }
+        ]),
+        jsonResponse(200, createIssueTypesPage([
+          {
+            id: "10000",
+            name: "Epic",
+            subtask: false
+          },
+          {
+            id: "10001",
+            name: "Task",
+            subtask: false
+          }
+        ])),
+        jsonResponse(200, {
+          issues: [
+            createIssueRecord({
+              description: "Child body",
+              issueKey: "ENG-1",
+              issueTypeName: "Task",
+              parentKey: "ENG-2",
+              projectKey: "ENG",
+              summary: "Child issue",
+              updated: "2026-03-12T00:00:00.000Z"
+            }),
+            createIssueRecord({
+              description: "Parent body",
+              issueKey: "ENG-2",
+              issueTypeName: "Task",
+              parentKey: "ENG-8",
+              projectKey: "ENG",
+              summary: "New parent",
+              updated: "2026-03-13T00:00:00.000Z"
+            })
+          ],
+          isLast: true
+        }),
+        jsonResponse(
+          200,
+          createIssueRecord({
+            description: "Parent body",
+            issueKey: "ENG-2",
+            issueTypeName: "Task",
+            parentKey: "ENG-8",
+            projectKey: "ENG",
+            summary: "New parent",
+            updated: "2026-03-13T00:00:00.000Z"
+          })
+        ),
+        jsonResponse(
+          200,
+          createIssueRecord({
+            description: "Epic body",
+            issueKey: "ENG-8",
+            issueTypeName: "Epic",
+            projectKey: "ENG",
+            summary: "New epic",
+            updated: "2026-03-11T00:00:00.000Z"
+          })
+        ),
+        jsonResponse(
+          200,
+          createIssueRecord({
+            description: "Epic body",
+            issueKey: "ENG-8",
+            issueTypeName: "Epic",
+            projectKey: "ENG",
+            summary: "New epic",
+            updated: "2026-03-11T00:00:00.000Z"
+          })
+        )
+      ]);
+
+      return await pullJiraToMarkdown({
+        projects: ["ENG"]
+      });
+    })();
+
+    expect(results).toHaveLength(2);
+    expect(results.find((result) => result.issueKey === "ENG-1")).toMatchObject({
+      action: "pull",
+      filePath: join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-8 - New epic",
+        "ENG-2 - New parent",
+        "ENG-1 - Child issue.md"
+      ),
+      issueKey: "ENG-1",
+      summary: "Child issue"
+    });
+    expect(await readFile(
+      join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-8 - New epic",
+        "ENG-2 - New parent",
+        "ENG-1 - Child issue.md"
+      ),
+      "utf8"
+    )).toContain("parent: ENG-2");
+    await expect(
+      stat(
+        join(
+          process.cwd(),
+          "issues",
+          "ENG",
+          "ENG-9 - Old epic",
+          "ENG-2 - Old parent",
+          "ENG-1 - Child issue.md"
+        )
+      )
+    ).rejects.toThrow();
+    await expect(stat(staleParentPath)).rejects.toThrow();
+  });
+
+  test("push rehomes skipped children when a parent moves deeper into the hierarchy", async () => {
+    await setupProjectWorkspace({
+      config: {
+        dir: "issues",
+        projectIssueTypeFieldMap: {
+          ENG: {
+            Epic: {},
+            Task: {},
+            "Sub-task": {}
+          }
+        }
+      }
+    });
+    const historyPath = join(process.cwd(), "issues", ".sync-history");
+
+    const issuesDirectory = join(process.cwd(), "issues", "ENG");
+    const parentPath = join(issuesDirectory, "ENG-1 - Parent task.md");
+    const childDirectory = join(issuesDirectory, "ENG-1 - Parent task");
+    const childPath = join(childDirectory, "ENG-2 - Child task.md");
+    const childAttachmentDirectory = join(issuesDirectory, ".attachments", "ENG-2");
+    await mkdir(childDirectory, { recursive: true });
+    await mkdir(childAttachmentDirectory, { recursive: true });
+    await writeFile(
+      parentPath,
+      "---\nissue: ENG-1\nissueType: Task\nparent: ENG-9\nsummary: Parent task\n---\nParent body\n",
+      "utf8"
+    );
+    await writeFile(
+      childPath,
+      "---\nissue: ENG-2\nissueType: Sub-task\nparent: ENG-1\nsummary: Child task\n---\nSee [spec](../.attachments/ENG-2/spec.pdf)\n",
+      "utf8"
+    );
+    await writeFile(join(childAttachmentDirectory, "spec.pdf"), "spec", "utf8");
+
+    const parentStats = await stat(parentPath);
+    const childStats = await stat(childPath);
+    const childAttachmentSignature = buildLocalAttachmentSignature(
+      await listLocalAttachmentFiles(childAttachmentDirectory)
+    );
+    const emptyRemoteAttachmentSignature = buildRemoteAttachmentSignature([]);
+    const history = {
+      attachments: {},
+      files: {
+        [parentPath]: {
+          issueKey: "ENG-1",
+          lastAttachmentSignature: buildLocalAttachmentSignature([]),
+          lastSyncedAt: "2026-03-10T00:00:00.000Z",
+          lastSyncedMtimeMs: Math.max(0, parentStats.mtimeMs - 1_000)
+        },
+        [childPath]: {
+          issueKey: "ENG-2",
+          lastAttachmentSignature: childAttachmentSignature,
+          lastSyncedAt: "2026-03-10T00:00:00.000Z",
+          lastSyncedMtimeMs: childStats.mtimeMs
+        }
+      },
+      issues: {
+        "ENG-1": {
+          filePath: parentPath,
+          lastPulledAttachmentSignature: emptyRemoteAttachmentSignature,
+          lastPulledAt: "2026-03-10T00:00:00.000Z",
+          lastPulledFileMtimeMs: Math.max(0, parentStats.mtimeMs - 1_000),
+          lastPulledLocalAttachmentSignature: buildLocalAttachmentSignature([]),
+          lastPulledRemoteUpdatedAt: "2026-03-10T00:00:00.000Z",
+          lastSyncedRemoteAttachmentSignature: emptyRemoteAttachmentSignature,
+          lastSyncedRemoteUpdatedAt: "2026-03-10T00:00:00.000Z",
+          projectKey: "ENG",
+          summary: "Parent task"
+        },
+        "ENG-2": {
+          filePath: childPath,
+          lastPulledAttachmentSignature: emptyRemoteAttachmentSignature,
+          lastPulledAt: "2026-03-10T00:00:00.000Z",
+          lastPulledFileMtimeMs: childStats.mtimeMs,
+          lastPulledLocalAttachmentSignature: childAttachmentSignature,
+          lastPulledRemoteUpdatedAt: "2026-03-10T00:00:00.000Z",
+          lastSyncedRemoteAttachmentSignature: emptyRemoteAttachmentSignature,
+          lastSyncedRemoteUpdatedAt: "2026-03-10T00:00:00.000Z",
+          projectKey: "ENG",
+          summary: "Child task"
+        }
+      },
+      stats: {},
+      version: 2
+    };
+    await writeFile(historyPath, `${JSON.stringify(history, null, 2)}\n`, "utf8");
+
+    const { calls } = createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" },
+        { id: "parent", name: "Parent" }
+      ]),
+      jsonResponse(200, createIssueTypesPage([
+        {
+          id: "10000",
+          name: "Epic",
+          subtask: false
+        },
+        {
+          id: "10001",
+          name: "Task",
+          subtask: false
+        },
+        {
+          id: "10002",
+          name: "Sub-task",
+          subtask: true
+        }
+      ])),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Parent body",
+          issueKey: "ENG-1",
+          issueTypeName: "Task",
+          projectKey: "ENG",
+          summary: "Parent task",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(200, {
+        fields: {
+          description: {
+            name: "Description",
+            operations: ["set"]
+          },
+          parent: {
+            name: "Parent",
+            operations: ["set"]
+          },
+          summary: {
+            name: "Summary",
+            operations: ["set"]
+          }
+        }
+      }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-9",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-11T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-9",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-11T00:00:00.000Z"
+        })
+      ),
+      new Response(null, { status: 204 }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Parent body",
+          issueKey: "ENG-1",
+          issueTypeName: "Task",
+          parentKey: "ENG-9",
+          projectKey: "ENG",
+          summary: "Parent task",
+          updated: "2026-03-12T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Epic body",
+          issueKey: "ENG-9",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-11T00:00:00.000Z"
+        })
+      )
+    ]);
+
+    const results = await pushMarkdownToJira();
+
+    expect(results).toHaveLength(2);
+    expect(results.find((result) => result.issueKey === "ENG-1")).toMatchObject({
+      action: "update",
+      filePath: join(
+        process.cwd(),
+        "issues",
+        "ENG",
+        "ENG-9 - Root epic",
+        "ENG-1 - Parent task.md"
+      ),
+      issueKey: "ENG-1"
+    });
+    const movedChildPath = join(
+      process.cwd(),
+      "issues",
+      "ENG",
+      "ENG-9 - Root epic",
+      "ENG-1 - Parent task",
+      "ENG-2 - Child task.md"
+    );
+    expect(results.find((result) => result.issueKey === "ENG-2")).toMatchObject({
+      action: "skip",
+      filePath: movedChildPath,
+      issueKey: "ENG-2",
+      summary: "Child task"
+    });
+    expect(await readFile(movedChildPath, "utf8")).toContain(
+      "[spec](../../.attachments/ENG-2/spec.pdf)"
+    );
+    await expect(stat(childPath)).rejects.toThrow();
+
+    const reloaded = await loadSyncHistory(historyPath);
+    expect(reloaded.history.issues["ENG-2"]?.filePath).toBe(toHistoryPath(movedChildPath));
+    expect(Object.keys(reloaded.history.files)).toContain(toHistoryPath(movedChildPath));
+    expect(Object.keys(reloaded.history.files)).not.toContain(toHistoryPath(childPath));
+    expect(calls.filter((call) => call.method === "PUT")).toHaveLength(1);
   });
 });
 

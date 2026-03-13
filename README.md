@@ -102,7 +102,10 @@ jira-markdown push --dry-run
 jira-markdown push
 ```
 
-`push` writes the created Jira key back into frontmatter by default and renames the file into the canonical path `<dir>/<PROJECT>/<KEY> - <Summary>.md`.
+`push` writes the created Jira key back into frontmatter by default and renames the file into the canonical project path:
+
+- Parentless issues stay at `<dir>/<PROJECT>/<KEY> - <Summary>.md`.
+- Child issues are nested under their full ancestor chain, for example `<dir>/<PROJECT>/<PARENT KEY> - <Parent Summary>/<KEY> - <Summary>.md`.
 
 ### Ongoing sync
 
@@ -245,8 +248,9 @@ Issue attachments live beside the markdown under the project folder. With the de
 
 ```text
 issues/ENG/ENG-123 - Improve sync behavior.md
+issues/ENG/ENG-123 - Improve sync behavior/ENG-456 - Validate attachment paths.md
 issues/ENG/.attachments/ENG-123/diagram.png
-issues/ENG/.attachments/ENG-123/spec.pdf
+issues/ENG/.attachments/ENG-456/spec.pdf
 ```
 
 For new local issues that do not have a Jira key yet, stage attachments under:
@@ -260,9 +264,10 @@ When `push` creates the Jira issue, the CLI moves that draft attachment folder i
 Attachment behavior:
 
 - `push` uploads new attachments and replaces attachments that were previously synced by this CLI when the local file content changes.
-- `push` rewrites local attachment markdown links like `[spec.pdf](.attachments/ENG-123/spec.pdf)` and image references like `![diagram.png](.attachments/ENG-123/diagram.png)` into Jira attachment URLs in the issue description.
+- `push` rewrites local attachment markdown links like `[spec.pdf](.attachments/ENG-123/spec.pdf)` or `[spec.pdf](../.attachments/ENG-456/spec.pdf)` into Jira attachment URLs in the issue description, depending on the markdown file depth.
 - `pull` downloads Jira attachments into the canonical issue attachment folder.
-- `pull` rewrites Jira description attachment references into local markdown links like `[spec.pdf](.attachments/ENG-123/spec.pdf)` or image embeds like `![diagram.png](.attachments/ENG-123/diagram.png)`.
+- `pull` rewrites Jira description attachment references into depth-aware local markdown links such as `[spec.pdf](.attachments/ENG-123/spec.pdf)` or `![diagram.png](../.attachments/ENG-456/diagram.png)`.
+- When a markdown file moves because its parent chain changed, the CLI rewrites local attachment links to stay valid from the new path.
 - The tool does not prune deleted attachments on either side.
 - If Jira already has an attachment with the same filename that is not tracked by `jira-markdown`, `push` stops and tells you to `pull` first or rename the local file.
 
@@ -291,7 +296,7 @@ Notes:
 
 ## Markdown shape
 
-Pulled issues land in canonical paths like `<dir>/ENG/ENG-123 - Tighten sync error handling.md`.
+Pulled issues land in hierarchy-aware canonical paths under the project folder. Parentless issues stay at `<dir>/ENG/ENG-123 - Tighten sync error handling.md`. Child issues use the full ancestor chain, for example `<dir>/ENG/ENG-1 - Parent epic/ENG-2 - Story/ENG-3 - Tighten sync error handling.md`.
 
 Example issue file:
 
@@ -413,8 +418,8 @@ git push origin master
 
 - The CLI stores per-file, per-issue, and per-attachment sync metadata in `<dir>/.sync-history` using absolute filesystem paths so unchanged markdown, Jira issues, and attachments can be skipped on later runs.
 - If you already have an older `.sync-history` file from a release that stored relative paths, delete it once and rerun `push`, `pull`, or `sync`.
-- `pull` writes Jira issues into `<dir>/<PROJECT>/<KEY> - <Summary>.md`.
-- `push` renames local files into that same canonical shape after create or update.
+- `pull` writes Jira issues into hierarchy-aware canonical paths rooted at `<dir>/<PROJECT>/`.
+- `push` renames local files into that same canonical shape after create or update, including reparenting into ancestor folders when Jira parentage changes.
 - `sync` is a convenience wrapper that runs `push` and then `pull`.
 - The markdown-to-ADF adapter handles headings, paragraphs, lists, task lists, tables, blockquotes, links, mentions, bold, italic, and inline code. If your content needs panels or richer Atlassian-specific nodes, extend [src/adf.ts](/Users/arch/src/jira-markdown/src/adf.ts).
 - Mention syntax:

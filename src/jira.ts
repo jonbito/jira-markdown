@@ -242,7 +242,7 @@ export class JiraClient {
 
   async getIssueHierarchy(issueIdOrKey: string): Promise<JiraIssueHierarchyRecord> {
     const params = new URLSearchParams({
-      fields: "issuetype,parent,project"
+      fields: "issuetype,parent,project,summary"
     });
 
     return this.request(

@@ -1,10 +1,11 @@
 import { readFile, stat } from "node:fs/promises";
-import { dirname, normalize, resolve } from "node:path";
+import { basename, dirname, normalize, resolve } from "node:path";
 import {
   adfToMarkdown,
   collectMediaBlocks,
   extractMarkdownMentions,
   markdownToAdf,
+  rewriteMarkdownLinkHrefs,
   type AdfNode
 } from "./adf.js";
 import {
@@ -36,6 +37,7 @@ import {
 } from "./field-value.js";
 import { collectMarkdownFiles } from "./file-discovery.js";
 import {
+  type CanonicalIssuePathSegment,
   buildCanonicalIssueFilePath,
   formatPulledIssueMarkdown,
   moveIssueFileToCanonicalPath,
@@ -49,6 +51,7 @@ import { buildCoreIssuePayload } from "./issue-payload.js";
 import { JiraApiError, JiraClient } from "./jira.js";
 import {
   loadMarkdownDocument,
+  writeMarkdownDocument,
   writeIssueKeyToFrontmatter
 } from "./markdown.js";
 import {
@@ -124,6 +127,7 @@ type RememberUsers = (users: JiraUserSummary[]) => void;
 interface LocalIssueRecord {
   document: MarkdownIssueDocument;
   filePath: string;
+  hierarchyFresh: boolean;
   issueKey: string;
   mtimeMs: number;
   projectKey?: string | undefined;
@@ -257,6 +261,23 @@ function normalizePullJqlClause(value: string | undefined): string | undefined {
 
 function asTrimmedString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeIssueKeyIdentifier(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && /^[A-Za-z][A-Za-z0-9_]*-\d+$/u.test(trimmed)
+    ? trimmed.toUpperCase()
+    : undefined;
+}
+
+function resolveParentIssueIdentifier(value: unknown): string | undefined {
+  const direct = asTrimmedString(value);
+  if (direct) {
+    return direct;
+  }
+
+  const parentReference = extractParentReference(value) ?? {};
+  return parentReference.key ?? parentReference.id;
 }
 
 function getRemoteIssueStatusName(issue: JiraIssueRecord): string | undefined {
@@ -444,6 +465,7 @@ async function loadLocalIssueState(
     localIssueIndex.set(issueKey, {
       document,
       filePath: document.filePath,
+      hierarchyFresh: false,
       issueKey,
       mtimeMs: fileStats.mtimeMs,
       projectKey
@@ -563,6 +585,259 @@ function recordSyncedIssueState(input: {
     projectKey: input.projectKey,
     summary: input.summary
   });
+}
+
+async function resolveAncestorPathSegments(input: {
+  jira: JiraClient;
+  parentIssueIdOrKey?: string | undefined;
+}): Promise<CanonicalIssuePathSegment[]> {
+  const ancestors: CanonicalIssuePathSegment[] = [];
+  let nextIdentifier = asTrimmedString(input.parentIssueIdOrKey);
+  const seen = new Set<string>();
+
+  while (nextIdentifier) {
+    const currentIdentifier = nextIdentifier;
+    const lookupKey = normalizeLookupKey(nextIdentifier);
+    if (seen.has(lookupKey)) {
+      break;
+    }
+    seen.add(lookupKey);
+
+    try {
+      const ancestor = await input.jira.getIssueHierarchy(nextIdentifier);
+      ancestors.push({
+        issueKey: ancestor.key,
+        summary: asTrimmedString(ancestor.fields.summary)
+      });
+      nextIdentifier =
+        asTrimmedString(ancestor.fields.parent?.key) ??
+        asTrimmedString(ancestor.fields.parent?.id);
+    } catch (error) {
+      if (
+        error instanceof JiraApiError &&
+        [400, 403, 404].includes(error.status)
+      ) {
+        ancestors.push({
+          issueKey: currentIdentifier
+        });
+        break;
+      }
+
+      throw error;
+    }
+  }
+
+  return ancestors.reverse();
+}
+
+async function resolveCanonicalIssueTargetPath(input: {
+  issueKey: string;
+  jira: JiraClient;
+  localIssueIndex?: Map<string, LocalIssueRecord> | undefined;
+  localParentHierarchyMode?: "always" | "fresh-only" | undefined;
+  parentIssueIdOrKey?: string | undefined;
+  projectKey: string;
+  rootDir: string;
+  summary: string;
+  visitedIssueKeys?: Set<string> | undefined;
+}): Promise<string> {
+  const visitedIssueKeys = new Set(input.visitedIssueKeys ?? []);
+  const normalizedIssueKey = normalizeIssueKeyIdentifier(input.issueKey);
+  if (normalizedIssueKey) {
+    visitedIssueKeys.add(normalizedIssueKey);
+  }
+
+  const localParentIssueKey = normalizeIssueKeyIdentifier(input.parentIssueIdOrKey);
+  if (
+    localParentIssueKey &&
+    !visitedIssueKeys.has(localParentIssueKey) &&
+    input.localIssueIndex?.has(localParentIssueKey)
+  ) {
+    const parentRecord = input.localIssueIndex.get(localParentIssueKey) as LocalIssueRecord;
+    const canUseLocalParentHierarchy =
+      input.localParentHierarchyMode !== "fresh-only" || parentRecord.hierarchyFresh;
+    const parentProjectKey =
+      parentRecord.projectKey ??
+      inferProjectKeyFromFilePath(parentRecord.filePath, input.rootDir) ??
+      inferProjectKeyFromIssueKey(parentRecord.issueKey);
+    if (
+      canUseLocalParentHierarchy &&
+      (
+        !parentProjectKey ||
+        normalizeProjectKey(parentProjectKey) === normalizeProjectKey(input.projectKey)
+      )
+    ) {
+      const parentCanonicalPath = await resolveCanonicalIssueTargetPath({
+        issueKey: parentRecord.issueKey,
+        jira: input.jira,
+        localIssueIndex: input.localIssueIndex,
+        localParentHierarchyMode: input.localParentHierarchyMode,
+        parentIssueIdOrKey: resolveParentIssueIdentifier(parentRecord.document.frontmatter.parent),
+        projectKey: parentProjectKey ?? input.projectKey,
+        rootDir: input.rootDir,
+        summary: asTrimmedString(parentRecord.document.frontmatter.summary) ?? parentRecord.issueKey,
+        visitedIssueKeys
+      });
+
+      return resolve(
+        dirname(parentCanonicalPath),
+        basename(parentCanonicalPath, ".md"),
+        basename(
+          buildCanonicalIssueFilePath(
+            input.issueKey,
+            input.summary,
+            input.projectKey,
+            process.cwd(),
+            input.rootDir
+          )
+        )
+      );
+    }
+  }
+
+  return buildCanonicalIssueFilePath(
+    input.issueKey,
+    input.summary,
+    input.projectKey,
+    process.cwd(),
+    input.rootDir,
+    await resolveAncestorPathSegments({
+      jira: input.jira,
+      parentIssueIdOrKey: input.parentIssueIdOrKey
+    })
+  );
+}
+
+async function relocateSkippedLocalIssueToCanonicalPath(input: {
+  config: AppConfig;
+  history: SyncHistory;
+  issueKeyField: string;
+  jira: JiraClient;
+  localIssue: PreparedLocalIssue;
+  localIssueIndex: Map<string, LocalIssueRecord>;
+  stats: SyncCommandStats;
+}): Promise<{
+  filePath: string;
+  mtimeMs: number;
+}> {
+  const issueKey = input.localIssue.core.issueKey;
+  if (!issueKey) {
+    return {
+      filePath: input.localIssue.filePath,
+      mtimeMs: input.localIssue.currentFileMtimeMs
+    };
+  }
+
+  const finalProjectKey =
+    input.localIssue.mappingScope.projectKey ??
+    input.localIssue.core.projectKey ??
+    inferProjectKeyFromFilePath(input.localIssue.filePath, input.config.dir) ??
+    inferProjectKeyFromIssueKey(issueKey);
+  if (!finalProjectKey) {
+    return {
+      filePath: input.localIssue.filePath,
+      mtimeMs: input.localIssue.currentFileMtimeMs
+    };
+  }
+
+  const targetPath = await resolveCanonicalIssueTargetPath({
+    issueKey,
+    jira: input.jira,
+    localIssueIndex: input.localIssueIndex,
+    localParentHierarchyMode: "always",
+    parentIssueIdOrKey: resolveParentIssueIdentifier(input.localIssue.document.frontmatter.parent),
+    projectKey: finalProjectKey,
+    rootDir: input.config.dir,
+    summary: input.localIssue.core.summary
+  });
+
+  let updatedDocument = input.localIssue.document;
+  let finalFilePath = await moveLocalIssueToCanonicalPath({
+    currentPath: input.localIssue.filePath,
+    issueKey,
+    issueKeyField: input.issueKeyField,
+    rootDir: input.config.dir,
+    targetPath
+  });
+  if (finalFilePath !== input.localIssue.filePath) {
+    deleteFileHistoryRecord(input.history, input.localIssue.filePath);
+  }
+
+  const currentAttachmentProjectKey =
+    inferProjectKeyFromFilePath(input.localIssue.filePath, input.config.dir) ??
+    inferProjectKeyFromIssueKey(issueKey);
+  if (currentAttachmentProjectKey && currentAttachmentProjectKey !== finalProjectKey) {
+    const currentAttachmentDirectory = buildIssueAttachmentDirectory(
+      issueKey,
+      currentAttachmentProjectKey,
+      process.cwd(),
+      input.config.dir
+    );
+    const nextAttachmentDirectory = await moveIssueAttachmentDirectory({
+      fromProjectKey: currentAttachmentProjectKey,
+      issueKey,
+      rootDir: input.config.dir,
+      toProjectKey: finalProjectKey
+    });
+    if (currentAttachmentDirectory !== nextAttachmentDirectory) {
+      rewriteAttachmentHistoryPathsForIssue(
+        input.history,
+        issueKey,
+        currentAttachmentDirectory,
+        nextAttachmentDirectory
+      );
+    }
+  }
+
+  const finalAttachmentState = await loadLocalAttachmentState({
+    filePath: finalFilePath,
+    issueKey,
+    projectKey: finalProjectKey,
+    rootDir: input.config.dir
+  });
+  updatedDocument = await rewriteLocalAttachmentMarkdownPaths({
+    currentAttachmentState: input.localIssue.currentAttachmentState,
+    currentFilePath: input.localIssue.filePath,
+    document: updatedDocument,
+    issueKey,
+    nextAttachmentState: finalAttachmentState,
+    nextFilePath: finalFilePath,
+    projectKey: finalProjectKey,
+    rootDir: input.config.dir
+  });
+
+  const finalFileStats = await stat(finalFilePath);
+  const issueHistory = getIssueHistoryRecord(input.history, issueKey);
+  recordSyncedIssueState({
+    fileMtimeMs: finalFileStats.mtimeMs,
+    filePath: finalFilePath,
+    history: input.history,
+    issueKey,
+    localAttachmentSignature: finalAttachmentState.signature,
+    projectKey: finalProjectKey,
+    remoteAttachmentSignature:
+      issueHistory?.lastSyncedRemoteAttachmentSignature ??
+      issueHistory?.lastPulledAttachmentSignature ??
+      buildRemoteAttachmentSignature([]),
+    remoteUpdatedAt:
+      issueHistory?.lastSyncedRemoteUpdatedAt ?? issueHistory?.lastPulledRemoteUpdatedAt,
+    summary: input.localIssue.core.summary,
+    syncedAt: input.stats.ranAt
+  });
+
+  input.localIssueIndex.set(issueKey, {
+    document: updatedDocument,
+    filePath: finalFilePath,
+    hierarchyFresh: true,
+    issueKey,
+    mtimeMs: finalFileStats.mtimeMs,
+    projectKey: finalProjectKey
+  });
+
+  return {
+    filePath: finalFilePath,
+    mtimeMs: finalFileStats.mtimeMs
+  };
 }
 
 async function prepareLocalIssueForPush(input: {
@@ -1159,23 +1434,15 @@ async function moveLocalIssueToCanonicalPath(input: {
   currentPath: string;
   issueKey: string;
   issueKeyField: string;
-  projectKey: string;
   rootDir: string;
-  summary: string;
+  targetPath: string;
 }): Promise<string> {
-  const targetPath = buildCanonicalIssueFilePath(
-    input.issueKey,
-    input.summary,
-    input.projectKey,
-    process.cwd(),
-    input.rootDir
-  );
-
   return moveIssueFileToCanonicalPath({
     currentPath: input.currentPath,
     issueKey: input.issueKey,
     issueKeyField: input.issueKeyField,
-    targetPath
+    rootDir: input.rootDir,
+    targetPath: input.targetPath
   });
 }
 
@@ -1887,6 +2154,86 @@ async function loadLocalAttachmentState(input: {
   };
 }
 
+async function rewriteLocalAttachmentMarkdownPaths(input: {
+  currentAttachmentState: LocalAttachmentState;
+  currentFilePath: string;
+  document: MarkdownIssueDocument;
+  issueKey: string;
+  nextAttachmentState: LocalAttachmentState;
+  nextFilePath: string;
+  projectKey: string;
+  rootDir: string;
+}): Promise<MarkdownIssueDocument> {
+  if (input.currentAttachmentState.files.length === 0) {
+    return {
+      ...input.document,
+      filePath: input.nextFilePath
+    };
+  }
+
+  const currentAttachmentsByPath = new Map(
+    input.currentAttachmentState.files.map((attachment) => [
+      normalize(attachment.filePath),
+      attachment
+    ])
+  );
+  const nextAttachmentsByFileName = new Map(
+    input.nextAttachmentState.files.map((attachment) => [attachment.fileName, attachment])
+  );
+
+  function rewriteValue(value: string): string {
+    return rewriteMarkdownLinkHrefs(value, ({ href }) => {
+      if (/^[a-z]+:\/\//iu.test(href)) {
+        return undefined;
+      }
+
+      const currentAttachment = currentAttachmentsByPath.get(
+        normalize(resolve(dirname(input.currentFilePath), href))
+      );
+      if (!currentAttachment || !nextAttachmentsByFileName.has(currentAttachment.fileName)) {
+        return undefined;
+      }
+
+      return buildIssueAttachmentMarkdownPath({
+        fileName: currentAttachment.fileName,
+        issueKey: input.issueKey,
+        markdownFilePath: input.nextFilePath,
+        projectKey: input.projectKey,
+        rootDir: input.rootDir
+      });
+    });
+  }
+
+  let changed = false;
+  const nextBody = rewriteValue(input.document.body);
+  if (nextBody !== input.document.body) {
+    changed = true;
+  }
+
+  const nextFrontmatter = { ...input.document.frontmatter };
+  const frontmatterDescription = nextFrontmatter.description;
+  if (typeof frontmatterDescription === "string") {
+    const nextDescription = rewriteValue(frontmatterDescription);
+    if (nextDescription !== frontmatterDescription) {
+      nextFrontmatter.description = nextDescription;
+      changed = true;
+    }
+  }
+
+  const nextDocument: MarkdownIssueDocument = {
+    ...input.document,
+    body: nextBody,
+    filePath: input.nextFilePath,
+    frontmatter: nextFrontmatter
+  };
+  if (!changed) {
+    return nextDocument;
+  }
+
+  await writeMarkdownDocument(nextDocument);
+  return await loadMarkdownDocument(input.nextFilePath);
+}
+
 function planLocalAttachmentSyncToJira(input: {
   attachmentState: LocalAttachmentState;
   history: SyncHistory;
@@ -2401,15 +2748,24 @@ async function applyLocalIssueUpdateToJira(input: {
     plannedStatus ??= planDesiredIssueStatus(input.localIssue, input.remoteIssue);
   }
 
+  const plannedParentReference = extractParentReference(fields.parent) ?? {};
+  const remoteParentReference = extractParentReference(input.remoteIssue.fields.parent) ?? {};
+  const targetParentReference =
+    plannedParentReference.key || plannedParentReference.id
+      ? plannedParentReference
+      : remoteParentReference;
   const targetFilePath =
     input.plannedUpdate.finalProjectKey
-      ? buildCanonicalIssueFilePath(
+      ? await resolveCanonicalIssueTargetPath({
           issueKey,
-          input.localIssue.core.summary,
-          input.plannedUpdate.finalProjectKey,
-          process.cwd(),
-          input.config.dir
-        )
+          jira: input.jira,
+          localIssueIndex: input.localIssueIndex,
+          localParentHierarchyMode: "always",
+          parentIssueIdOrKey: targetParentReference.key ?? targetParentReference.id,
+          projectKey: input.plannedUpdate.finalProjectKey,
+          rootDir: input.config.dir,
+          summary: input.localIssue.core.summary
+        })
       : input.localIssue.filePath;
   const actionLabel = input.resultAction === "keep-local" ? "KEEP-LOCAL" : "UPDATE";
   const hasFieldWrites = Object.keys(fields).length > 0;
@@ -2481,6 +2837,7 @@ async function applyLocalIssueUpdateToJira(input: {
     remoteWritesPerformed = true;
   }
 
+  let updatedDocument = input.localIssue.document;
   let finalFilePath = input.localIssue.filePath;
   const finalProjectKey =
     input.plannedUpdate.finalProjectKey ??
@@ -2491,9 +2848,8 @@ async function applyLocalIssueUpdateToJira(input: {
       currentPath: input.localIssue.filePath,
       issueKey,
       issueKeyField: input.issueKeyField,
-      projectKey: finalProjectKey,
       rootDir: input.config.dir,
-      summary: input.localIssue.core.summary
+      targetPath: targetFilePath
     });
     if (finalFilePath !== input.localIssue.filePath) {
       deleteFileHistoryRecord(input.history, input.localIssue.filePath);
@@ -2535,6 +2891,18 @@ async function applyLocalIssueUpdateToJira(input: {
     projectKey: finalProjectKey,
     rootDir: input.config.dir
   });
+  if (finalProjectKey) {
+    updatedDocument = await rewriteLocalAttachmentMarkdownPaths({
+      currentAttachmentState: input.localIssue.currentAttachmentState,
+      currentFilePath: input.localIssue.filePath,
+      document: updatedDocument,
+      issueKey,
+      nextAttachmentState: finalAttachmentState,
+      nextFilePath: finalFilePath,
+      projectKey: finalProjectKey,
+      rootDir: input.config.dir
+    });
+  }
   const finalFileStats = await stat(finalFilePath);
   recordSyncedIssueState({
     fileMtimeMs: finalFileStats.mtimeMs,
@@ -2552,11 +2920,9 @@ async function applyLocalIssueUpdateToJira(input: {
   });
 
   input.localIssueIndex.set(issueKey, {
-    document: {
-      ...input.localIssue.document,
-      filePath: finalFilePath
-    },
+    document: updatedDocument,
     filePath: finalFilePath,
+    hierarchyFresh: true,
     issueKey,
     mtimeMs: finalFileStats.mtimeMs,
     projectKey: finalProjectKey
@@ -2643,13 +3009,23 @@ async function applyLocalIssueCreateToJira(input: {
     input.localIssue.core.projectKey ??
     inferProjectKeyFromIssueKey(created.key);
   if (finalProjectKey) {
+    const parentReference = extractParentReference(resolvedCreateFields.parent) ?? {};
+    const targetPath = await resolveCanonicalIssueTargetPath({
+      issueKey: created.key,
+      jira: input.jira,
+      localIssueIndex: input.localIssueIndex,
+      localParentHierarchyMode: "always",
+      parentIssueIdOrKey: parentReference.key ?? parentReference.id,
+      projectKey: finalProjectKey,
+      rootDir: input.config.dir,
+      summary: input.localIssue.core.summary
+    });
     finalFilePath = await moveLocalIssueToCanonicalPath({
       currentPath: input.localIssue.filePath,
       issueKey: created.key,
       issueKeyField: input.issueKeyField,
-      projectKey: finalProjectKey,
       rootDir: input.config.dir,
-      summary: input.localIssue.core.summary
+      targetPath
     });
     updatedDocument = {
       ...updatedDocument,
@@ -2668,6 +3044,16 @@ async function applyLocalIssueCreateToJira(input: {
     const finalAttachmentState = await loadLocalAttachmentState({
       filePath: finalFilePath,
       issueKey: created.key,
+      projectKey: finalProjectKey,
+      rootDir: input.config.dir
+    });
+    updatedDocument = await rewriteLocalAttachmentMarkdownPaths({
+      currentAttachmentState: input.localIssue.currentAttachmentState,
+      currentFilePath: input.localIssue.filePath,
+      document: updatedDocument,
+      issueKey: created.key,
+      nextAttachmentState: finalAttachmentState,
+      nextFilePath: finalFilePath,
       projectKey: finalProjectKey,
       rootDir: input.config.dir
     });
@@ -2740,6 +3126,7 @@ async function applyLocalIssueCreateToJira(input: {
   input.localIssueIndex.set(created.key, {
     document: updatedDocument,
     filePath: finalFilePath,
+    hierarchyFresh: true,
     issueKey: created.key,
     mtimeMs: finalFileStats.mtimeMs,
     projectKey: finalProjectKey
@@ -2838,6 +3225,7 @@ async function applyRemoteIssueToLocal(input: {
   rememberUsers?: RememberUsers | undefined;
   resultAction: "keep-jira" | "pull";
   stats: SyncCommandStats;
+  targetPath?: string | undefined;
 }): Promise<SyncFileResult> {
   const summary = input.issue.fields.summary?.trim() || input.issue.key;
   const projectKey =
@@ -2845,15 +3233,22 @@ async function applyRemoteIssueToLocal(input: {
     inferProjectKeyFromIssueKey(input.issue.key);
   const issueTypeName = input.issue.fields.issuetype?.name ?? undefined;
   const targetPath =
-    projectKey
-      ? buildCanonicalIssueFilePath(
-          input.issue.key,
-          summary,
+    input.targetPath ??
+    (projectKey
+      ? await resolveCanonicalIssueTargetPath({
+          issueKey: input.issue.key,
+          jira: input.jira,
+          localIssueIndex: input.localIssueIndex,
+          localParentHierarchyMode: "fresh-only",
+          parentIssueIdOrKey:
+            asTrimmedString(input.issue.fields.parent?.key) ??
+            asTrimmedString(input.issue.fields.parent?.id),
           projectKey,
-          process.cwd(),
-          input.config.dir
-        )
-      : input.localIssueIndex.get(input.issue.key)?.filePath ?? resolve(process.cwd(), input.config.dir, `${input.issue.key}.md`);
+          rootDir: input.config.dir,
+          summary
+        })
+      : input.localIssueIndex.get(input.issue.key)?.filePath ??
+        resolve(process.cwd(), input.config.dir, `${input.issue.key}.md`));
   const existingRecord = input.localIssueIndex.get(input.issue.key);
   const remoteAttachments = input.issue.fields.attachment ?? [];
   const currentAttachmentState = await loadLocalAttachmentState({
@@ -2952,6 +3347,7 @@ async function applyRemoteIssueToLocal(input: {
     currentPath: existingRecord?.filePath,
     issueKey: input.issue.key,
     issueKeyField: input.issueKeyField,
+    rootDir: input.config.dir,
     targetPath
   });
   if (existingRecord?.filePath && existingRecord.filePath !== finalPath) {
@@ -3027,11 +3423,15 @@ async function applyRemoteIssueToLocal(input: {
         ...(sprint !== undefined ? { sprint } : {}),
         ...extraFrontmatter,
         ...(input.issue.fields.labels?.length ? { labels: input.issue.fields.labels } : {}),
+        ...(input.issue.fields.parent?.key
+          ? { parent: input.issue.fields.parent.key }
+          : {}),
         summary
       },
       raw: content
     },
     filePath: finalPath,
+    hierarchyFresh: true,
     issueKey: input.issue.key,
     mtimeMs: finalFileStats.mtimeMs,
     projectKey
@@ -3078,10 +3478,25 @@ async function executePush(input: PushExecutionContext & {
         mtimeMs: localIssue.currentFileMtimeMs
       })
     ) {
+      const relocated =
+        !input.dryRun && localIssue.action === "update"
+          ? await relocateSkippedLocalIssueToCanonicalPath({
+              config: input.config,
+              history: input.history,
+              issueKeyField: input.issueKeyField,
+              jira: input.jira,
+              localIssue,
+              localIssueIndex: input.localIssueIndex,
+              stats: input.pushStats
+            })
+          : {
+              filePath,
+              mtimeMs: localIssue.currentFileMtimeMs
+            };
       input.pushStats.skippedUnchanged += 1;
       results.push({
         action: "skip",
-        filePath,
+        filePath: relocated.filePath,
         issueKey: localIssue.core.issueKey,
         summary: localIssue.core.summary
       });
@@ -3263,13 +3678,18 @@ async function pullRemoteIssues(input: {
       const projectKey =
         normalizeProjectKey(issue.fields.project?.key) ?? configuredProjectKey;
       const issueTypeName = issue.fields.issuetype?.name ?? undefined;
-      const targetPath = buildCanonicalIssueFilePath(
-        issue.key,
-        summary,
+      const targetPath = await resolveCanonicalIssueTargetPath({
+        issueKey: issue.key,
+        jira: input.jira,
+        localIssueIndex: input.localIssueIndex,
+        localParentHierarchyMode: "fresh-only",
+        parentIssueIdOrKey:
+          asTrimmedString(issue.fields.parent?.key) ??
+          asTrimmedString(issue.fields.parent?.id),
         projectKey,
-        process.cwd(),
-        input.config.dir
-      );
+        rootDir: input.config.dir,
+        summary
+      });
       const existingRecord = input.localIssueIndex.get(issue.key);
       const remoteAttachments = issue.fields.attachment ?? [];
       const remoteAttachmentSignature = buildRemoteAttachmentSignature(remoteAttachments);
@@ -3361,7 +3781,8 @@ async function pullRemoteIssues(input: {
                 localIssueIndex: input.localIssueIndex,
                 rememberUsers: input.rememberUsers,
                 resultAction: "keep-jira",
-                stats: input.pullStats
+                stats: input.pullStats,
+                targetPath
               });
 
         input.pushedIssueKeys.add(issue.key);
@@ -3395,7 +3816,8 @@ async function pullRemoteIssues(input: {
           localIssueIndex: input.localIssueIndex,
           rememberUsers: input.rememberUsers,
           resultAction: "pull",
-          stats: input.pullStats
+          stats: input.pullStats,
+          targetPath
         })
       );
     }

@@ -105,6 +105,7 @@ export interface JiraIssueHierarchyRecord {
     issuetype?: JiraIssueTypeReference | null;
     parent?: JiraIssueParentReference | null;
     project?: JiraProjectReference | null;
+    summary?: string | undefined;
   };
   id: string;
   key: string;
