@@ -1,10 +1,19 @@
 {
   "name": "@jonbito/jira-markdown",
+  "author": "Jonathan Bishop",
   "version": "0.1.1",
   "description": "Bun CLI for syncing markdown files with Jira issues.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonbito/jira-markdown"
+  },
+  "homepage": "https://github.com/jonbito/jira-markdown#readme",
+  "bugs": {
+    "url": "https://github.com/jonbito/jira-markdown/issues"
+  },
   "type": "module",
   "bin": {
-    "jira-markdown": "./dist/cli.js"
+    "jira-markdown": "dist/cli.js"
   },
   "files": [
     "dist",
