@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jonbito/jira-markdown/compare/v1.0.0...v1.1.0) (2026-03-13)
+
+
+### Features
+
+* **sync:** nest issues under parent chains ([fd52db5](https://github.com/jonbito/jira-markdown/commit/fd52db5cdc4825ec4d5d31646b54be3ab861048b))
+
 ## [1.0.0](https://github.com/jonbito/jira-markdown/compare/v0.1.4...v1.0.0) (2026-03-13)
 
 

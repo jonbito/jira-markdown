@@ -1,7 +1,7 @@
 {
   "name": "@jonbito/jira-markdown",
   "author": "Jonathan Bishop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "CLI for syncing markdown files with Jira issues.",
   "repository": {
     "type": "git",
