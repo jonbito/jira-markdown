@@ -1,0 +1,43 @@
+{
+  "name": "jira-markdown",
+  "version": "0.1.0",
+  "description": "Bun CLI for syncing markdown files with Jira issues.",
+  "type": "module",
+  "bin": {
+    "jira-markdown": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "jira-markdown.config.example.json"
+  ],
+  "scripts": {
+    "auth": "bun run src/cli.ts auth",
+    "build": "bun build src/cli.ts --target bun --outdir dist",
+    "config": "bun run src/cli.ts config",
+    "dev": "bun run src/cli.ts",
+    "inspect": "bun run src/cli.ts inspect",
+    "prepack": "bun run build",
+    "pull": "bun run src/cli.ts pull",
+    "push": "bun run src/cli.ts push",
+    "sync": "bun run src/cli.ts sync",
+    "sprints": "bun run src/cli.ts sprints",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "gray-matter": "^4.0.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "bun": ">=1.3.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

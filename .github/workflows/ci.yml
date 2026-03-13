@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    tags-ignore:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Run tests
+        run: bun test
+
+      - name: Verify npm package contents
+        env:
+          npm_config_cache: ${{ runner.temp }}/npm-cache
+        run: npm pack --dry-run
