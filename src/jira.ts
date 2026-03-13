@@ -116,6 +116,15 @@ async function sleepForDelay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function buildProjectIssueSearchJql(projectKey: string, jqlClause?: string): string {
+  const projectClause = `project = "${projectKey}"`;
+  if (!jqlClause) {
+    return `${projectClause} ORDER BY key ASC`;
+  }
+
+  return `${projectClause} AND (${jqlClause}) ORDER BY key ASC`;
+}
+
 export class JiraApiError extends Error {
   constructor(
     message: string,
@@ -442,7 +451,8 @@ export class JiraClient {
 
   async searchIssuesByProject(
     projectKey: string,
-    extraFieldIds: string[] = []
+    extraFieldIds: string[] = [],
+    jqlClause?: string
   ): Promise<JiraIssueRecord[]> {
     const results: JiraIssueRecord[] = [];
     let nextPageToken: string | undefined;
@@ -465,7 +475,7 @@ export class JiraClient {
       const page = await this.request<SearchIssuesPage>("/rest/api/3/search/jql", {
         body: JSON.stringify({
           fields: [...new Set(fields)],
-          jql: `project = "${projectKey}" ORDER BY key ASC`,
+          jql: buildProjectIssueSearchJql(projectKey, jqlClause),
           ...(nextPageToken ? { nextPageToken } : {}),
           maxResults: 100
         }),

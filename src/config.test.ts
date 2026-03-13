@@ -40,6 +40,40 @@ async function withWorkingDirectory<T>(
   }
 }
 
+async function withHomeDirectory<T>(
+  directory: string,
+  callback: () => Promise<T>
+): Promise<T> {
+  return withEnvironment({ HOME: directory }, callback);
+}
+
+async function withEnvironment<T>(
+  updates: Record<string, string | undefined>,
+  callback: () => Promise<T>
+): Promise<T> {
+  const previousValues = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(updates)) {
+    previousValues.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return await callback();
+  } finally {
+    for (const [key, previousValue] of previousValues) {
+      if (previousValue === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previousValue;
+      }
+    }
+  }
+}
+
 describe("initAppConfig", () => {
   test("uses the same user config directory as auth metadata by default", () => {
     const defaultConfigPath = getDefaultConfigFilePath();
@@ -289,5 +323,155 @@ describe("initAppConfig", () => {
     const loaded = await loadAppConfig(configPath);
 
     expect(loaded.config.dir).toBe("docs");
+  });
+
+  test("expands a leading tilde in dir when loading config and generated maps", async () => {
+    const fakeHomeDirectory = await createTempDirectory();
+    const workspaceDirectory = await createTempDirectory();
+    const configPath = join(workspaceDirectory, "jira-markdown.config.json");
+    const expandedDir = join(fakeHomeDirectory, "src", "jira");
+    const fieldMapPath = join(expandedDir, ".jira-markdown.field-map.json");
+    const userMapPath = join(expandedDir, ".jira-markdown.user-map.json");
+
+    await withHomeDirectory(fakeHomeDirectory, async () => {
+      await writeFile(
+        configPath,
+        `${JSON.stringify({ dir: "~/src/jira" }, null, 2)}\n`,
+        "utf8"
+      );
+      await mkdir(expandedDir, { recursive: true });
+      await writeFile(
+        fieldMapPath,
+        `${JSON.stringify(
+          {
+            ENG: {
+              Task: {
+                storyPoints: {
+                  fieldId: "customfield_10016",
+                  resolver: "number"
+                }
+              }
+            }
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+      await writeFile(
+        userMapPath,
+        `${JSON.stringify(
+          {
+            "Alice Example": {
+              accountId: "557058:alice"
+            }
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+
+      const loaded = await loadAppConfig(configPath);
+
+      expect(loaded.config.dir).toBe(expandedDir);
+      expect(loaded.config.projectIssueTypeFieldMap.ENG?.Task?.storyPoints).toEqual({
+        fieldId: "customfield_10016",
+        resolver: "number"
+      });
+      expect(loaded.config.userMap["Alice Example"]).toEqual({
+        accountId: "557058:alice"
+      });
+    });
+  });
+
+  test("writes generated maps under the expanded home directory", async () => {
+    const fakeHomeDirectory = await createTempDirectory();
+
+    await withHomeDirectory(fakeHomeDirectory, async () => {
+      const savedPath = await saveGeneratedUserMap(
+        {
+          "Alice Example": {
+            accountId: "557058:alice"
+          }
+        },
+        "~/src/jira"
+      );
+
+      expect(savedPath).toBe(
+        join(fakeHomeDirectory, "src", "jira", ".jira-markdown.user-map.json")
+      );
+      expect(JSON.parse(await readFile(savedPath, "utf8"))).toEqual({
+        "Alice Example": {
+          accountId: "557058:alice"
+        }
+      });
+    });
+  });
+
+  test("expands shell-style environment variables in dir when loading config", async () => {
+    const fakeHomeDirectory = await createTempDirectory();
+    const workspaceDirectory = await createTempDirectory();
+    const configPath = join(workspaceDirectory, "jira-markdown.config.json");
+    const expandedDir = join(fakeHomeDirectory, "src", "jira");
+    const userMapPath = join(expandedDir, ".jira-markdown.user-map.json");
+
+    await withEnvironment({ HOME: fakeHomeDirectory }, async () => {
+      await writeFile(
+        configPath,
+        `${JSON.stringify({ dir: "$HOME/src/jira" }, null, 2)}\n`,
+        "utf8"
+      );
+      await mkdir(expandedDir, { recursive: true });
+      await writeFile(
+        userMapPath,
+        `${JSON.stringify(
+          {
+            "Alice Example": {
+              accountId: "557058:alice"
+            }
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+
+      const loaded = await loadAppConfig(configPath);
+
+      expect(loaded.config.dir).toBe(expandedDir);
+      expect(loaded.config.userMap["Alice Example"]).toEqual({
+        accountId: "557058:alice"
+      });
+    });
+  });
+
+  test("expands percent-style environment variables when writing generated maps", async () => {
+    const fakeAppDataDirectory = await createTempDirectory();
+
+    await withEnvironment({ APPDATA: fakeAppDataDirectory }, async () => {
+      const savedPath = await saveGeneratedUserMap(
+        {
+          "Alice Example": {
+            accountId: "557058:alice"
+          }
+        },
+        "%APPDATA%/jira-markdown/issues"
+      );
+
+      expect(savedPath).toBe(
+        join(
+          fakeAppDataDirectory,
+          "jira-markdown",
+          "issues",
+          ".jira-markdown.user-map.json"
+        )
+      );
+      expect(JSON.parse(await readFile(savedPath, "utf8"))).toEqual({
+        "Alice Example": {
+          accountId: "557058:alice"
+        }
+      });
+    });
   });
 });

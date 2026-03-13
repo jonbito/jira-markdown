@@ -105,6 +105,7 @@ import {
 interface SyncCommandOptions {
   configPath?: string;
   dryRun?: boolean;
+  jql?: string;
   onConflict?: ConflictMode;
   projects?: string[] | undefined;
   resolveConflict?: ResolveConflict | undefined;
@@ -230,6 +231,27 @@ function normalizeLookupKey(value: string): string {
 
 function normalizeProjectKey(value: string | undefined): string | undefined {
   return value?.trim() ? value.trim().toUpperCase() : undefined;
+}
+
+function normalizePullJqlClause(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(
+      "Invalid --jql value: pass a non-empty JQL filter clause."
+    );
+  }
+
+  if (/\border\s+by\b/i.test(trimmed)) {
+    throw new Error(
+      "Invalid --jql value: do not include ORDER BY. Pass only the filter clause; pull always orders by key ASC."
+    );
+  }
+
+  return trimmed;
 }
 
 function asTrimmedString(value: unknown): string | undefined {
@@ -3222,6 +3244,7 @@ async function pullRemoteIssues(input: {
   history: SyncHistory;
   issueKeyField: string;
   jira: JiraClient;
+  jql?: string | undefined;
   localIssueIndex: Map<string, LocalIssueRecord>;
   projectKeys: Set<string>;
   pushedIssueKeys: Set<string>;
@@ -3239,7 +3262,8 @@ async function pullRemoteIssues(input: {
     );
     const issues = await input.jira.searchIssuesByProject(
       configuredProjectKey,
-      extraFieldIds
+      extraFieldIds,
+      input.jql
     );
 
     for (const issue of issues) {
@@ -3490,6 +3514,7 @@ export async function pushMarkdownToJira(
 export async function pullJiraToMarkdown(
   options: SyncCommandOptions = {}
 ): Promise<SyncFileResult[]> {
+  const jql = normalizePullJqlClause(options.jql);
   const loaded = await loadAppConfig(options.configPath);
   let { config } = loaded;
   const { configPath } = loaded;
@@ -3531,6 +3556,7 @@ export async function pullJiraToMarkdown(
     history,
     issueKeyField,
     jira,
+    jql,
     localIssueIndex,
     projectKeys,
     pushedIssueKeys: new Set(),
@@ -3552,6 +3578,7 @@ export async function pullJiraToMarkdown(
 export async function syncMarkdownToJira(
   options: SyncCommandOptions = {}
 ): Promise<SyncFileResult[]> {
+  const jql = normalizePullJqlClause(options.jql);
   const loaded = await loadAppConfig(options.configPath);
   let { config } = loaded;
   const { configPath } = loaded;
@@ -3624,6 +3651,7 @@ export async function syncMarkdownToJira(
         history,
         issueKeyField,
         jira,
+        jql,
         localIssueIndex,
         projectKeys,
         pushedIssueKeys,

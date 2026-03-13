@@ -134,6 +134,52 @@ describe("cli config auto-init", () => {
     await expect(readFile(configPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  test("pull help describes the project-scoped JQL filter", async () => {
+    const directory = await createTempDirectory();
+    const configPath = join(directory, "jira-markdown.config.json");
+
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      ["run", "src/cli.ts", "pull", "--help"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          JIRA_MARKDOWN_CONFIG_FILE: configPath
+        }
+      }
+    );
+
+    expect(stderr).toBe("");
+    expect(stdout.replace(/\s+/g, " ")).toContain(
+      "Additional JQL filter clause applied within each selected project"
+    );
+    await expect(readFile(configPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("sync help describes JQL as applying only to the pull step", async () => {
+    const directory = await createTempDirectory();
+    const configPath = join(directory, "jira-markdown.config.json");
+
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      ["run", "src/cli.ts", "sync", "--help"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          JIRA_MARKDOWN_CONFIG_FILE: configPath
+        }
+      }
+    );
+
+    expect(stderr).toBe("");
+    expect(stdout.replace(/\s+/g, " ")).toContain(
+      "Additional JQL filter clause applied during sync's pull step within each selected project"
+    );
+    await expect(readFile(configPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   test("push dry-run without local files explains how to get started", async () => {
     const directory = await createTempDirectory();
     const configPath = join(directory, "custom.config.json");

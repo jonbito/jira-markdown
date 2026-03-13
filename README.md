@@ -61,9 +61,11 @@ Use this when Jira already has the issues and you want local markdown copies fir
 ```bash
 jira-markdown pull --project ENG --dry-run
 jira-markdown pull --project ENG
+jira-markdown pull --project ENG --jql 'statusCategory != Done'
 ```
 
 When you do not already have local files under `<dir>/<PROJECT>/`, `pull` needs `--project`.
+`--jql` adds an extra filter within each selected project; do not include `ORDER BY`.
 
 ### Start from local markdown
 
@@ -109,9 +111,11 @@ After you have local files and Jira auth configured, use `sync` for the normal w
 ```bash
 jira-markdown sync --project ENG --dry-run
 jira-markdown sync --project ENG
+jira-markdown sync --project ENG --jql 'assignee = currentUser()'
 ```
 
 `sync --dry-run` previews both the outgoing Jira writes and the local file writes without changing Jira, local files, or sync history.
+`sync --jql` affects only the pull phase after push and uses the same project-scoped filtering as `pull`.
 
 The first non-dry-run `push`, `pull`, or `sync` automatically discovers missing issue-type field maps and learns user labels, then writes them into `<dir>/.jira-markdown.field-map.json` and `<dir>/.jira-markdown.user-map.json`.
 
@@ -170,6 +174,7 @@ Path resolution rules:
 - The default `dir: "issues"` therefore targets `./issues` in that workspace.
 
 Pull scope comes from `--project` and any local files already present under `<dir>/<PROJECT>/...`.
+Use `--jql` to further narrow the pulled issues within each selected project, for example `--jql 'labels = docs'`.
 
 If `EDITOR` is set, you can open the config file directly with:
 
@@ -369,6 +374,15 @@ fields:
 - `jira-markdown sync --project ENG`
 - `jira-markdown sync --project ENG --dry-run`
 - `jira-markdown sprints --board 12 --state active,future`
+
+## Resources
+
+Official Atlassian references for writing `--jql` filters:
+
+- Use advanced search with JQL: https://support.atlassian.com/jira-software-cloud/docs/use-advanced-search-with-jira-query-language-jql/
+- JQL fields reference: https://support.atlassian.com/jira-service-management-cloud/docs/jql-fields/
+- JQL operators reference: https://support.atlassian.com/jira-service-management-cloud/docs/jql-operators/
+- Retrieve child and linked work items of an epic in Jira Cloud: https://support.atlassian.com/jira/kb/retrieve-all-child-and-linked-work-items-of-an-epic-in-jira-cloud/
 
 ## Release
 

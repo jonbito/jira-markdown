@@ -539,6 +539,137 @@ describe("sync conflict resolution", () => {
   });
 });
 
+describe("pull JQL filters", () => {
+  test("pull applies a project-scoped JQL clause to Jira search", async () => {
+    await setupProjectWorkspace({});
+
+    const { calls } = createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" }
+      ]),
+      jsonResponse(200, createIssueTypesPage()),
+      jsonResponse(200, {
+        issues: [],
+        isLast: true
+      })
+    ]);
+
+    const results = await pullJiraToMarkdown({
+      jql: "statusCategory != Done",
+      projects: ["ENG"]
+    });
+
+    expect(results).toEqual([]);
+
+    const searchCall = calls.find((call) => call.url.endsWith("/rest/api/3/search/jql"));
+    expect(searchCall?.method).toBe("POST");
+    expect(JSON.parse(searchCall?.body ?? "{}")).toMatchObject({
+      jql: 'project = "ENG" AND (statusCategory != Done) ORDER BY key ASC'
+    });
+  });
+
+  test("pull applies the same JQL clause to each selected project", async () => {
+    await setupProjectWorkspace({
+      config: {
+        dir: "issues",
+        projectIssueTypeFieldMap: {
+          ENG: {
+            Task: {}
+          },
+          OPS: {
+            Task: {}
+          }
+        }
+      }
+    });
+
+    const { calls } = createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" }
+      ]),
+      jsonResponse(200, createIssueTypesPage()),
+      jsonResponse(200, createIssueTypesPage()),
+      jsonResponse(200, {
+        issues: [],
+        isLast: true
+      }),
+      jsonResponse(200, {
+        issues: [],
+        isLast: true
+      })
+    ]);
+
+    const results = await pullJiraToMarkdown({
+      jql: "assignee is not EMPTY",
+      projects: ["OPS", "ENG"]
+    });
+
+    expect(results).toEqual([]);
+
+    const searchCalls = calls.filter((call) => call.url.endsWith("/rest/api/3/search/jql"));
+    expect(searchCalls).toHaveLength(2);
+    expect(JSON.parse(searchCalls[0]?.body ?? "{}")).toMatchObject({
+      jql: 'project = "ENG" AND (assignee is not EMPTY) ORDER BY key ASC'
+    });
+    expect(JSON.parse(searchCalls[1]?.body ?? "{}")).toMatchObject({
+      jql: 'project = "OPS" AND (assignee is not EMPTY) ORDER BY key ASC'
+    });
+  });
+
+  test("sync applies JQL to its pull phase search", async () => {
+    await setupProjectWorkspace({});
+
+    const { calls } = createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" }
+      ]),
+      jsonResponse(200, createIssueTypesPage()),
+      jsonResponse(200, {
+        issues: [],
+        isLast: true
+      })
+    ]);
+
+    const results = await syncMarkdownToJira({
+      jql: "labels = backend",
+      projects: ["ENG"]
+    });
+
+    expect(results).toEqual([]);
+
+    const searchCall = calls.find((call) => call.url.endsWith("/rest/api/3/search/jql"));
+    expect(searchCall?.method).toBe("POST");
+    expect(JSON.parse(searchCall?.body ?? "{}")).toMatchObject({
+      jql: 'project = "ENG" AND (labels = backend) ORDER BY key ASC'
+    });
+  });
+
+  test("pull rejects blank JQL clauses", async () => {
+    await setupProjectWorkspace({});
+
+    await expect(
+      pullJiraToMarkdown({
+        jql: "   ",
+        projects: ["ENG"]
+      })
+    ).rejects.toThrow(/non-empty JQL filter clause/i);
+  });
+
+  test("sync rejects JQL clauses that include ORDER BY", async () => {
+    await setupProjectWorkspace({});
+
+    await expect(
+      syncMarkdownToJira({
+        jql: "statusCategory != Done ORDER BY updated DESC",
+        projects: ["ENG"]
+      })
+    ).rejects.toThrow(/do not include ORDER BY/i);
+  });
+});
+
 describe("modern parent hierarchy support", () => {
   test("push fails when creating a sub-task without a parent", async () => {
     await setupProjectWorkspace({

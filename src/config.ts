@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { getDefaultAppConfigDirectory } from "./auth-store";
@@ -47,6 +48,8 @@ const appConfigSchema = z.object({
 const DEFAULT_CONFIG_FILE = "jira-markdown.config.json";
 const GENERATED_FIELD_MAP_FILE = ".jira-markdown.field-map.json";
 const GENERATED_USER_MAP_FILE = ".jira-markdown.user-map.json";
+const ENVIRONMENT_VARIABLE_PATTERN =
+  /\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|%([A-Za-z_][A-Za-z0-9_]*)%/g;
 
 const generatedProjectIssueTypeFieldMapSchema = z
   .record(
@@ -66,27 +69,89 @@ interface InitAppConfigOptions {
 export function getDefaultConfigFilePath(env = process.env): string {
   const override = env.JIRA_MARKDOWN_CONFIG_FILE?.trim();
   if (override) {
-    return resolve(override);
+    return resolve(expandConfiguredPath(override, env));
   }
 
   return join(getDefaultAppConfigDirectory(env), DEFAULT_CONFIG_FILE);
 }
 
+function lookupEnvironmentVariable(
+  name: string,
+  env: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  const exact = env[name];
+  if (typeof exact === "string" && exact.length > 0) {
+    return exact;
+  }
+
+  const requestedName = name.toLowerCase();
+  for (const [key, value] of Object.entries(env)) {
+    if (key.toLowerCase() === requestedName && typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function expandEnvironmentVariables(
+  filePath: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return filePath.replace(
+    ENVIRONMENT_VARIABLE_PATTERN,
+    (match, shellName, bracedName, windowsName) => {
+      const variableName = shellName || bracedName || windowsName;
+      if (!variableName) {
+        return match;
+      }
+
+      return lookupEnvironmentVariable(variableName, env) ?? match;
+    }
+  );
+}
+
+function getHomePath(env: NodeJS.ProcessEnv = process.env): string {
+  return lookupEnvironmentVariable("HOME", env) ??
+    lookupEnvironmentVariable("USERPROFILE", env) ??
+    homedir();
+}
+
+function expandHomePath(filePath: string, homePath = getHomePath()): string {
+  if (filePath === "~") {
+    return homePath;
+  }
+
+  if (filePath.startsWith("~/") || filePath.startsWith("~\\")) {
+    return resolve(homePath, filePath.slice(2));
+  }
+
+  return filePath;
+}
+
+function expandConfiguredPath(
+  filePath: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return expandHomePath(expandEnvironmentVariables(filePath, env), getHomePath(env));
+}
+
 function resolveConfigPath(configPath?: string): string {
   if (configPath?.trim()) {
-    return resolve(process.cwd(), configPath);
+    return resolve(process.cwd(), expandConfiguredPath(configPath));
   }
 
   return getDefaultConfigFilePath();
 }
 
 function resolveConfiguredDirPath(configPath: string, dir: string, cwd = process.cwd()): string {
-  if (isAbsolute(dir)) {
-    return resolve(dir);
+  const expandedDir = expandConfiguredPath(dir);
+  if (isAbsolute(expandedDir)) {
+    return resolve(expandedDir);
   }
 
   const basePath = configPath === getDefaultConfigFilePath() ? cwd : dirname(configPath);
-  return resolve(basePath, dir);
+  return resolve(basePath, expandedDir);
 }
 
 function resolveGeneratedConfigPath(
@@ -176,7 +241,7 @@ export async function loadAppConfig(configPath?: string): Promise<{
     config: {
       ...createDefaultAppConfig(),
       ...parsedConfig,
-      dir: resolvedDir,
+      dir: expandConfiguredPath(resolvedDir),
       projectIssueTypeFieldMap: generatedProjectIssueTypeFieldMapSchema.parse(
         parsedFieldMap
       ),

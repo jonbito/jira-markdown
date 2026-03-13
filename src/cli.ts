@@ -322,6 +322,10 @@ program
     collectProjectOption,
     []
   )
+  .option(
+    "--jql <clause>",
+    "Additional JQL filter clause applied within each selected project"
+  )
   .addOption(
     new Option("--on-conflict <mode>", "Concurrent local/Jira change handling")
       .choices(["prompt", "keep-local", "keep-jira", "fail"])
@@ -336,6 +340,7 @@ program
     await pullJiraToMarkdown({
       configPath: options.config,
       dryRun: options.dryRun,
+      jql: options.jql,
       onConflict,
       projects: options.project,
       resolveConflict: onConflict === "prompt" ? promptConflictResolution : undefined
@@ -351,6 +356,10 @@ program
     "Jira project key to pull after push (repeatable or comma-separated)",
     collectProjectOption,
     []
+  )
+  .option(
+    "--jql <clause>",
+    "Additional JQL filter clause applied during sync's pull step within each selected project"
   )
   .option(
     "--dry-run",
@@ -370,6 +379,7 @@ program
     await syncMarkdownToJira({
       configPath: options.config,
       dryRun: options.dryRun,
+      jql: options.jql,
       onConflict,
       projects: options.project,
       resolveConflict: onConflict === "prompt" ? promptConflictResolution : undefined,
