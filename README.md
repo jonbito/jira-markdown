@@ -387,13 +387,25 @@ Official Atlassian references for writing `--jql` filters:
 
 ## Release
 
-GitHub Actions publishes to npm when a tag matching `v<package.json version>` is pushed. Before using the publish workflow, add an `NPM_TOKEN` repository secret with publish access to the target package.
+Releases are managed by Release Please. Merged commits on `master` are scanned for Conventional Commit messages, and Release Please opens or updates a release PR that bumps `package.json`, updates `CHANGELOG.md`, and prepares the next GitHub release.
 
-Example release flow:
+When that release PR is merged, GitHub Actions will:
+
+- create the release tag and GitHub Release
+- run `bun run typecheck`
+- run `bun test`
+- run `npm pack --dry-run`
+- publish the package to npm with provenance
+
+Before using the release workflow, add an `NPM_TOKEN` repository secret with publish access to the target package.
+
+Release-facing commits should use Conventional Commits such as `fix(sync): ...` and `feat(cli): ...`. If you need to cut a release for a non-releasable change type like `build:` or `chore:`, add a `Release-As: x.y.z` footer to the merged commit message. If you need to rewrite the generated notes for a merged PR, use Release Please's PR body override support.
+
+Example contributor flow:
 
 ```bash
-npm version patch
-git push origin --follow-tags
+git commit -m "fix(sync): skip no-op issue updates"
+git push origin master
 ```
 
 ## Notes
