@@ -1,4 +1,4 @@
-import { type JiraCreateField } from "./types";
+import { type JiraCreateField } from "./types.js";
 
 export interface BlockedUpdateField {
   fieldId: string;

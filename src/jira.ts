@@ -11,7 +11,7 @@ import {
   type JiraProjectSummary,
   type JiraSprint,
   type JiraUserSummary
-} from "./types";
+} from "./types.js";
 
 type JiraResponseErrorPayload = {
   errorMessages?: string[];
@@ -505,7 +505,7 @@ export class JiraClient {
     content: Uint8Array
   ): Promise<JiraIssueAttachment[]> {
     const formData = new FormData();
-    formData.append("file", new Blob([content]), fileName);
+    formData.append("file", new Blob([Uint8Array.from(content)]), fileName);
 
     return this.request(`/rest/api/3/issue/${encodeURIComponent(issueKey)}/attachments`, {
       body: formData,

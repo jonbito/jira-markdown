@@ -1,11 +1,12 @@
-import { execFile } from "node:child_process";
+import { execFile, type ExecFileOptionsWithStringEncoding } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "./test-helpers.js";
 
 const execFileAsync = promisify(execFile);
+const compiledCliPath = join(process.cwd(), ".test-dist", "cli.js");
 const tempDirectories: string[] = [];
 
 afterEach(async () => {
@@ -44,24 +45,29 @@ async function createEditorScript(directory: string): Promise<{
   };
 }
 
+async function runCli(
+  args: string[],
+  options: ExecFileOptionsWithStringEncoding = {}
+): Promise<{ stderr: string; stdout: string }> {
+  return execFileAsync(process.execPath, [compiledCliPath, ...args], {
+    cwd: process.cwd(),
+    ...options
+  });
+}
+
 describe("cli config auto-init", () => {
   test("auth status does not auto-create config when it is missing", async () => {
     const directory = await createTempDirectory();
     const configPath = join(directory, "jira-markdown.config.json");
     const authFilePath = join(directory, "auth.json");
 
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ["run", "src/cli.ts", "auth", "status"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          JIRA_MARKDOWN_AUTH_FILE: authFilePath,
-          JIRA_MARKDOWN_CONFIG_FILE: configPath
-        }
+    const { stdout, stderr } = await runCli(["auth", "status"], {
+      env: {
+        ...process.env,
+        JIRA_MARKDOWN_AUTH_FILE: authFilePath,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath
       }
-    );
+    });
 
     expect(stderr).toBe("");
     expect(stdout).toContain("No Jira auth is configured.");
@@ -73,17 +79,12 @@ describe("cli config auto-init", () => {
     const directory = await createTempDirectory();
     const configPath = join(directory, "jira-markdown.config.json");
 
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ["run", "src/cli.ts", "auth", "login", "--help"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          JIRA_MARKDOWN_CONFIG_FILE: configPath
-        }
+    const { stdout, stderr } = await runCli(["auth", "login", "--help"], {
+      env: {
+        ...process.env,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath
       }
-    );
+    });
 
     expect(stderr).toBe("");
     expect(stdout).toContain("Store Jira authentication for future CLI use.");
@@ -94,17 +95,12 @@ describe("cli config auto-init", () => {
     const directory = await createTempDirectory();
     const configPath = join(directory, "jira-markdown.config.json");
 
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ["run", "src/cli.ts", "sprints", "--help"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          JIRA_MARKDOWN_CONFIG_FILE: configPath
-        }
+    const { stdout, stderr } = await runCli(["sprints", "--help"], {
+      env: {
+        ...process.env,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath
       }
-    );
+    });
 
     expect(stderr).toBe("");
     expect(stdout).toContain("List sprints for a board so sprint names can be mapped to ids.");
@@ -115,17 +111,12 @@ describe("cli config auto-init", () => {
     const directory = await createTempDirectory();
     const configPath = join(directory, "jira-markdown.config.json");
 
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ["run", "src/cli.ts", "sync", "--help"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          JIRA_MARKDOWN_CONFIG_FILE: configPath
-        }
+    const { stdout, stderr } = await runCli(["sync", "--help"], {
+      env: {
+        ...process.env,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath
       }
-    );
+    });
 
     expect(stderr).toBe("");
     expect(stdout.replace(/\s+/g, " ")).toContain(
@@ -138,17 +129,12 @@ describe("cli config auto-init", () => {
     const directory = await createTempDirectory();
     const configPath = join(directory, "jira-markdown.config.json");
 
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ["run", "src/cli.ts", "pull", "--help"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          JIRA_MARKDOWN_CONFIG_FILE: configPath
-        }
+    const { stdout, stderr } = await runCli(["pull", "--help"], {
+      env: {
+        ...process.env,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath
       }
-    );
+    });
 
     expect(stderr).toBe("");
     expect(stdout.replace(/\s+/g, " ")).toContain(
@@ -161,17 +147,12 @@ describe("cli config auto-init", () => {
     const directory = await createTempDirectory();
     const configPath = join(directory, "jira-markdown.config.json");
 
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ["run", "src/cli.ts", "sync", "--help"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          JIRA_MARKDOWN_CONFIG_FILE: configPath
-        }
+    const { stdout, stderr } = await runCli(["sync", "--help"], {
+      env: {
+        ...process.env,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath
       }
-    );
+    });
 
     expect(stderr).toBe("");
     expect(stdout.replace(/\s+/g, " ")).toContain(
@@ -207,18 +188,8 @@ describe("cli config auto-init", () => {
       stdout?: string;
     };
     try {
-      await execFileAsync(
-        process.execPath,
-        [
-          "run",
-          join(process.cwd(), "src/cli.ts"),
-          "push",
-          "--dry-run",
-          "--on-conflict",
-          "keep-local",
-          "--config",
-          configPath
-        ],
+      await runCli(
+        ["push", "--dry-run", "--on-conflict", "keep-local", "--config", configPath],
         {
           cwd: directory,
           env: {
@@ -252,20 +223,9 @@ describe("cli config auto-init", () => {
       stdout?: string;
     };
     try {
-      await execFileAsync(
-        process.execPath,
-        [
-          "run",
-          "src/cli.ts",
-          "push",
-          "--dry-run",
-          "--on-conflict",
-          "keep-local",
-          "--config",
-          configPath
-        ],
+      await runCli(
+        ["push", "--dry-run", "--on-conflict", "keep-local", "--config", configPath],
         {
-          cwd: process.cwd(),
           env: {
             ...process.env,
             JIRA_MARKDOWN_AUTH_FILE: authFilePath,
@@ -295,19 +255,14 @@ describe("cli config auto-init", () => {
     const configPath = join(directory, "custom path", "jira config.json");
     const { editor, outputPath } = await createEditorScript(directory);
 
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ["run", "src/cli.ts", "config", "edit"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          EDITOR: editor,
-          JIRA_MARKDOWN_CONFIG_FILE: configPath,
-          JIRA_MARKDOWN_TEST_EDITOR_OUTPUT: outputPath
-        }
+    const { stdout, stderr } = await runCli(["config", "edit"], {
+      env: {
+        ...process.env,
+        EDITOR: editor,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath,
+        JIRA_MARKDOWN_TEST_EDITOR_OUTPUT: outputPath
       }
-    );
+    });
 
     expect(stderr).toBe("");
     expect(stdout).toContain(`Initialized starter config at ${configPath}.`);
@@ -328,18 +283,13 @@ describe("cli config auto-init", () => {
       stdout?: string;
     };
     try {
-      await execFileAsync(
-        process.execPath,
-        ["run", "src/cli.ts", "config", "edit"],
-        {
-          cwd: process.cwd(),
-          env: {
-            ...process.env,
-            EDITOR: "",
-            JIRA_MARKDOWN_CONFIG_FILE: configPath
-          }
+      await runCli(["config", "edit"], {
+        env: {
+          ...process.env,
+          EDITOR: "",
+          JIRA_MARKDOWN_CONFIG_FILE: configPath
         }
-      );
+      });
       throw new Error("Expected config edit to fail without EDITOR.");
     } catch (error) {
       thrown = error as Error & {
@@ -357,17 +307,12 @@ describe("cli config auto-init", () => {
     const directory = await createTempDirectory();
     const configPath = join(directory, "jira-markdown.config.json");
 
-    const { stdout, stderr } = await execFileAsync(
-      process.execPath,
-      ["run", "src/cli.ts", "inspect", "adf", "--help"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          JIRA_MARKDOWN_CONFIG_FILE: configPath
-        }
+    const { stdout, stderr } = await runCli(["inspect", "adf", "--help"], {
+      env: {
+        ...process.env,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath
       }
-    );
+    });
 
     expect(stderr).toBe("");
     expect(stdout).toContain("Print the raw Jira ADF description for an issue.");

@@ -13,8 +13,8 @@ import {
   inferProjectKeyFromFilePath,
   inferProjectRootPath,
   inferWorkspaceRootPath
-} from "./project-path";
-import { type JiraIssueAttachment } from "./types";
+} from "./project-path.js";
+import { type JiraIssueAttachment } from "./types.js";
 
 export interface LocalAttachmentFile {
   fileName: string;

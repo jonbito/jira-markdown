@@ -1,22 +1,22 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { spawn } from "node:child_process";
 import { Command, Option, type OptionValues } from "commander";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
-import { authLogin, authLogout, authStatus } from "./auth";
-import { createDefaultAppConfig, initAppConfig } from "./config";
-import { inspectIssueAdf } from "./inspect";
+import { authLogin, authLogout, authStatus } from "./auth.js";
+import { createDefaultAppConfig, initAppConfig } from "./config.js";
+import { inspectIssueAdf } from "./inspect.js";
 import {
   listSprints,
   pullJiraToMarkdown,
   pushMarkdownToJira,
   syncMarkdownToJira
-} from "./sync";
+} from "./sync.js";
 import {
   type ConflictMode,
   type ConflictResolution
-} from "./types";
+} from "./types.js";
 
 function collectProjectOption(value: string, previous: string[] = []): string[] {
   return [

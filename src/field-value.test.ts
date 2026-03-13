@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "./test-helpers.js";
 import {
   extractFrontmatterFieldValue,
   inferResolverForField,
   resolvePlainFieldValue
-} from "./field-value";
-import { type JiraCreateField, type JiraField } from "./types";
+} from "./field-value.js";
+import { type JiraCreateField, type JiraField } from "./types.js";
 
 describe("inferResolverForField", () => {
   test("detects common Jira system and option-array field shapes", () => {

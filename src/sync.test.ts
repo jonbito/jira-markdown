@@ -1,19 +1,19 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "./test-helpers.js";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { persistStoredAuth } from "./auth-store";
+import { persistStoredAuth } from "./auth-store.js";
 import {
   buildLocalAttachmentSignature,
   buildRemoteAttachmentSignature
-} from "./attachments";
-import { loadSyncHistory, toHistoryPath } from "./sync-history";
+} from "./attachments.js";
+import { loadSyncHistory, toHistoryPath } from "./sync-history.js";
 import {
   pullJiraToMarkdown,
   pushMarkdownToJira,
   syncMarkdownToJira
-} from "./sync";
-import { type JiraIssueRecord } from "./types";
+} from "./sync.js";
+import { type JiraIssueRecord } from "./types.js";
 
 const originalCwd = process.cwd();
 const originalFetch = globalThis.fetch;

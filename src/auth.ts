@@ -6,9 +6,9 @@ import {
   normalizeBaseUrl,
   persistStoredAuth,
   readStoredAuthStatus
-} from "./auth-store";
-import { JiraClient } from "./jira";
-import { type AuthMode } from "./types";
+} from "./auth-store.js";
+import { JiraClient } from "./jira.js";
+import { type AuthMode } from "./types.js";
 
 interface AuthLoginOptions {
   authMode?: AuthMode;

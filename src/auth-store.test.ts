@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "./test-helpers.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import {
   normalizeBaseUrl,
   persistStoredAuth,
   readStoredAuthStatus
-} from "./auth-store";
+} from "./auth-store.js";
 
 const tempDirectories: string[] = [];
 

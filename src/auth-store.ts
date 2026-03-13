@@ -9,7 +9,7 @@ import {
   type AuthStorageKind,
   type JiraAuthConfig,
   type StoredAuthRecord
-} from "./types";
+} from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const KEYCHAIN_SERVICE = "jira-markdown";

@@ -1,13 +1,13 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { loadStoredAuthConfig } from "./auth-store";
+import { loadStoredAuthConfig } from "./auth-store.js";
 import {
   initAppConfig,
   saveGeneratedProjectIssueTypeFieldMap
-} from "./config";
-import { inferResolverForField } from "./field-value";
-import { JiraClient } from "./jira";
-import { inferProjectKeyFromFilePath } from "./project-path";
+} from "./config.js";
+import { inferResolverForField } from "./field-value.js";
+import { JiraClient } from "./jira.js";
+import { inferProjectKeyFromFilePath } from "./project-path.js";
 import {
   RESERVED_FRONTMATTER_KEYS,
   type AppConfig,
@@ -15,7 +15,7 @@ import {
   type JiraCreateField,
   type JiraField,
   type JiraIssueTypeSummary
-} from "./types";
+} from "./types.js";
 
 interface DiscoverProjectFieldMapOptions {
   allIssueTypes?: boolean;

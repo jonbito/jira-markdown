@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "./test-helpers.js";
 import {
   buildDiscoveredUserMap,
   resolvePreferredUserLabel,
   resolveUserFromMap,
   upsertDiscoveredUsers
-} from "./user-map";
+} from "./user-map.js";
 
 describe("buildDiscoveredUserMap", () => {
   test("uses display names as preferred labels and emails as aliases", () => {

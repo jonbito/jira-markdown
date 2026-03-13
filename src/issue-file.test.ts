@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "./test-helpers.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +6,7 @@ import {
   buildCanonicalIssueFilePath,
   formatPulledIssueMarkdown,
   writeIssueFileToCanonicalPath
-} from "./issue-file";
+} from "./issue-file.js";
 
 const tempDirectories: string[] = [];
 

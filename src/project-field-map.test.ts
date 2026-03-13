@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "./test-helpers.js";
 import {
   buildProjectFieldMapTemplate,
   discoverMissingProjectIssueTypeFieldMaps,
@@ -6,8 +6,8 @@ import {
   inferProjectKeyForMappingScope,
   mergeDiscoveredProjectFieldMaps,
   resolveFieldMapping
-} from "./project-field-map";
-import { type AppConfig, type JiraCreateField, type JiraField } from "./types";
+} from "./project-field-map.js";
+import { type AppConfig, type JiraCreateField, type JiraField } from "./types.js";
 
 const baseConfig: AppConfig = {
   dir: "issues",

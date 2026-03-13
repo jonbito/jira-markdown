@@ -1,8 +1,8 @@
 import { basename } from "node:path";
-import { markdownToAdf, type MarkdownToAdfOptions } from "./adf";
-import { resolveIssueKey } from "./issue-key";
-import { inferProjectKeyFromFilePath } from "./project-path";
-import { type CoreIssuePayload, RESERVED_FRONTMATTER_KEYS } from "./types";
+import { markdownToAdf, type MarkdownToAdfOptions } from "./adf.js";
+import { resolveIssueKey } from "./issue-key.js";
+import { inferProjectKeyFromFilePath } from "./project-path.js";
+import { type CoreIssuePayload, RESERVED_FRONTMATTER_KEYS } from "./types.js";
 
 interface BuildCoreIssuePayloadInput {
   body: string;

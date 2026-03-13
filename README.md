@@ -1,15 +1,15 @@
 # jira-markdown
 
-`jira-markdown` is a Bun-based CLI that syncs markdown files with Jira Cloud issues. You can start from local markdown and push it into Jira, start from Jira and pull issues onto disk, or run both directions with `sync`.
+`jira-markdown` is a CLI that syncs markdown files with Jira Cloud issues. You can start from local markdown and push it into Jira, start from Jira and pull issues onto disk, or run both directions with `sync`.
 
-This project is Cloud-first. It works best with Jira Cloud authentication and field metadata. Bun `1.3.9` or newer is required at runtime, including when the CLI is installed from npm.
+This project is Cloud-first. It works best with Jira Cloud authentication and field metadata. Node.js `22` or newer is the supported runtime. Bun is optional and can run the built CLI, but it is not required.
 
-Examples below use the installed `jira-markdown` binary. If you are working from this repository, use the matching Bun scripts instead:
+Examples below use the installed `jira-markdown` binary. If you are working from this repository, use the matching npm scripts instead:
 
-- `jira-markdown auth login` -> `bun run auth login`
-- `jira-markdown push` -> `bun run push`
-- `jira-markdown pull --project ENG` -> `bun run pull --project ENG`
-- `jira-markdown sync --project ENG` -> `bun run sync --project ENG`
+- `jira-markdown auth login` -> `npm run auth -- login`
+- `jira-markdown push` -> `npm run push`
+- `jira-markdown pull --project ENG` -> `npm run pull -- --project ENG`
+- `jira-markdown sync --project ENG` -> `npm run sync -- --project ENG`
 
 Replace `ENG` below with your Jira project key.
 
@@ -26,7 +26,7 @@ The npm package name is scoped, but the installed command remains `jira-markdown
 For local development in this repository:
 
 ```bash
-bun install
+npm install
 ```
 
 ## Quick start
@@ -392,8 +392,9 @@ Releases are managed by Release Please. Merged commits on `master` are scanned f
 When that release PR is merged, GitHub Actions will:
 
 - create the release tag and GitHub Release
-- run `bun run typecheck`
-- run `bun test`
+- run `npm run typecheck`
+- run `npm test`
+- run `npm run build`
 - run `npm pack --dry-run`
 - publish the package to npm with provenance
 

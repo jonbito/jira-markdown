@@ -1,6 +1,6 @@
 import { stdout as output } from "node:process";
-import { loadStoredAuthConfig } from "./auth-store";
-import { JiraClient } from "./jira";
+import { loadStoredAuthConfig } from "./auth-store.js";
+import { JiraClient } from "./jira.js";
 
 export async function inspectIssueAdf(
   issueKey: string,

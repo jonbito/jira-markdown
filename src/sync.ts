@@ -6,7 +6,7 @@ import {
   extractMarkdownMentions,
   markdownToAdf,
   type AdfNode
-} from "./adf";
+} from "./adf.js";
 import {
   buildDraftAttachmentDirectory,
   buildIssueAttachmentDirectory,
@@ -22,51 +22,52 @@ import {
   sanitizeAttachmentFileName,
   writeAttachmentFile,
   type LocalAttachmentFile
-} from "./attachments";
-import { loadStoredAuthConfig } from "./auth-store";
+} from "./attachments.js";
+import { loadStoredAuthConfig } from "./auth-store.js";
 import {
   loadAppConfig,
   saveGeneratedProjectIssueTypeFieldMap,
   saveGeneratedUserMap
-} from "./config";
+} from "./config.js";
 import {
   extractFrontmatterFieldValue,
   inferResolverForField,
   resolvePlainFieldValue
-} from "./field-value";
+} from "./field-value.js";
+import { collectMarkdownFiles } from "./file-discovery.js";
 import {
   buildCanonicalIssueFilePath,
   formatPulledIssueMarkdown,
   moveIssueFileToCanonicalPath,
   writeIssueFileToCanonicalPath
-} from "./issue-file";
+} from "./issue-file.js";
 import {
   ISSUE_KEY_FRONTMATTER_FIELD,
   resolveIssueKey
-} from "./issue-key";
-import { buildCoreIssuePayload } from "./issue-payload";
-import { JiraApiError, JiraClient } from "./jira";
+} from "./issue-key.js";
+import { buildCoreIssuePayload } from "./issue-payload.js";
+import { JiraApiError, JiraClient } from "./jira.js";
 import {
   loadMarkdownDocument,
   writeIssueKeyToFrontmatter
-} from "./markdown";
+} from "./markdown.js";
 import {
   inferProjectKeyFromFilePath
-} from "./project-path";
+} from "./project-path.js";
 import {
   discoverMissingProjectIssueTypeFieldMaps,
   inferIssueTypeForMappingScope,
   inferProjectKeyForMappingScope,
   resolveFieldMapping
-} from "./project-field-map";
+} from "./project-field-map.js";
 import {
   normalizeUserLookupValue,
   resolvePreferredUserLabel,
   resolveUserFromMap,
   upsertDiscoveredUsers
-} from "./user-map";
-import { pruneUnchangedUpdateFields } from "./update-field-pruning";
-import { collectBlockedUpdateFields } from "./update-field-validation";
+} from "./user-map.js";
+import { pruneUnchangedUpdateFields } from "./update-field-pruning.js";
+import { collectBlockedUpdateFields } from "./update-field-validation.js";
 import {
   findAttachmentHistoryRecordByRemoteId,
   getAttachmentHistoryRecord,
@@ -86,7 +87,7 @@ import {
   toHistoryPath,
   type SyncCommandStats,
   type SyncHistory
-} from "./sync-history";
+} from "./sync-history.js";
 import {
   type AppConfig,
   type ConflictMode,
@@ -100,7 +101,7 @@ import {
   type JiraUserSummary,
   type MarkdownIssueDocument,
   type SyncFileResult
-} from "./types";
+} from "./types.js";
 
 interface SyncCommandOptions {
   configPath?: string;
@@ -397,35 +398,6 @@ async function ensureGeneratedProjectFieldMappings(input: {
   return discovery.config;
 }
 
-async function collectFiles(dir: string, cwd = process.cwd()): Promise<string[]> {
-  const matches = new Set<string>();
-
-  const rootDirectory = resolve(cwd, dir);
-  try {
-    const rootStats = await stat(rootDirectory);
-    if (!rootStats.isDirectory()) {
-      return [];
-    }
-  } catch (error) {
-    if ((error as { code?: string }).code === "ENOENT") {
-      return [];
-    }
-
-    throw error;
-  }
-
-  const glob = new Bun.Glob("**/*.md");
-  for await (const match of glob.scan({ cwd: rootDirectory, absolute: true })) {
-    const filePath = resolve(match);
-    const fileStats = await stat(filePath);
-    if (fileStats.isFile()) {
-      matches.add(filePath);
-    }
-  }
-
-  return [...matches].sort();
-}
-
 async function loadLocalIssueState(
   config: AppConfig,
   issueKeyField: string,
@@ -436,7 +408,7 @@ async function loadLocalIssueState(
   localIssueIndex: Map<string, LocalIssueRecord>;
   projectKeys: Set<string>;
 }> {
-  const files = await collectFiles(config.dir);
+  const files = await collectMarkdownFiles(config.dir);
   const localIssueIndex = new Map<string, LocalIssueRecord>();
   const projectKeys = includeConfiguredProjects
     ? collectConfiguredProjectKeys(explicitProjects)

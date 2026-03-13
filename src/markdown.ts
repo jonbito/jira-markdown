@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
-import { type MarkdownIssueDocument } from "./types";
+import { type MarkdownIssueDocument } from "./types.js";
 
 function toFrontmatterRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

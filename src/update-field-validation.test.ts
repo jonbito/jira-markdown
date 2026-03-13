@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { collectBlockedUpdateFields } from "./update-field-validation";
+import { describe, expect, test } from "./test-helpers.js";
+import { collectBlockedUpdateFields } from "./update-field-validation.js";
 
 describe("collectBlockedUpdateFields", () => {
   test("flags fields missing from edit metadata", () => {

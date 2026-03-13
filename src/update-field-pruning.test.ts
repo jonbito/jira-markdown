@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { pruneUnchangedUpdateFields } from "./update-field-pruning";
+import { describe, expect, test } from "./test-helpers.js";
+import { pruneUnchangedUpdateFields } from "./update-field-pruning.js";
 
 describe("pruneUnchangedUpdateFields", () => {
   test("removes unchanged summary, assignee, labels, parent, and description", () => {

@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "./test-helpers.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { persistStoredAuth } from "./auth-store";
-import { inspectIssueAdf } from "./inspect";
+import { persistStoredAuth } from "./auth-store.js";
+import { inspectIssueAdf } from "./inspect.js";
 
 const originalFetch = globalThis.fetch;
 const originalAuthFile = process.env.JIRA_MARKDOWN_AUTH_FILE;

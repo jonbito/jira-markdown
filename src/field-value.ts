@@ -1,11 +1,11 @@
-import { extractSprintFrontmatterValue } from "./sprint-field";
+import { extractSprintFrontmatterValue } from "./sprint-field.js";
 import {
   type FieldMappingConfig,
   type FieldResolverKind,
   type JiraCreateField,
   type JiraField,
   type JsonValue
-} from "./types";
+} from "./types.js";
 
 function normalizeLookupKey(value: string): string {
   return value.replace(/[\s_-]+/g, "").toLowerCase();

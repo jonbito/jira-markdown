@@ -1,4 +1,4 @@
-import { type FieldResolverKind } from "./types";
+import { type FieldResolverKind } from "./types.js";
 
 type SprintLike = {
   id?: number | undefined;

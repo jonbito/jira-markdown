@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "./test-helpers.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import {
   createUniqueAttachmentFileName,
   listLocalAttachmentFiles,
   promoteDraftAttachmentDirectory
-} from "./attachments";
+} from "./attachments.js";
 
 const tempDirectories: string[] = [];
 

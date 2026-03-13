@@ -1,15 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "./test-helpers.js";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { getDefaultAuthFilePath } from "./auth-store";
+import { getDefaultAuthFilePath } from "./auth-store.js";
 import {
   createDefaultAppConfig,
   getDefaultConfigFilePath,
   initAppConfig,
   loadAppConfig,
   saveGeneratedUserMap
-} from "./config";
+} from "./config.js";
 
 const tempDirectories: string[] = [];
 

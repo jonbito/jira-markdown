@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import matter from "gray-matter";
-import { resolveIssueKey } from "./issue-key";
+import { resolveIssueKey } from "./issue-key.js";
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;

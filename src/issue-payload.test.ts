@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { adfToMarkdown, collectMediaBlocks, markdownToAdf } from "./adf";
-import { buildCoreIssuePayload } from "./issue-payload";
+import { describe, expect, test } from "./test-helpers.js";
+import { adfToMarkdown, collectMediaBlocks, markdownToAdf } from "./adf.js";
+import { buildCoreIssuePayload } from "./issue-payload.js";
 
 describe("markdownToAdf", () => {
   test("converts headings, paragraphs, and lists", () => {

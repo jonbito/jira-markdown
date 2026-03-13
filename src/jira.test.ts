@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { JiraApiError, JiraClient } from "./jira";
-import { type JiraAuthConfig } from "./types";
+import { describe, expect, test } from "./test-helpers.js";
+import { JiraApiError, JiraClient } from "./jira.js";
+import { type JiraAuthConfig } from "./types.js";
 
 const auth: JiraAuthConfig = {
   apiToken: "token",

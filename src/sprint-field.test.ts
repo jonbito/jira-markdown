@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { extractSprintFrontmatterValue } from "./sprint-field";
+import { describe, expect, test } from "./test-helpers.js";
+import { extractSprintFrontmatterValue } from "./sprint-field.js";
 
 describe("extractSprintFrontmatterValue", () => {
   test("prefers active or future sprint names when using sprintByName", () => {

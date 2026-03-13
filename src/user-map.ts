@@ -1,7 +1,7 @@
-import { loadStoredAuthConfig } from "./auth-store";
-import { initAppConfig, saveGeneratedUserMap } from "./config";
-import { JiraClient } from "./jira";
-import { type AppConfig, type JiraUserSummary, type UserMapEntry } from "./types";
+import { loadStoredAuthConfig } from "./auth-store.js";
+import { initAppConfig, saveGeneratedUserMap } from "./config.js";
+import { JiraClient } from "./jira.js";
+import { type AppConfig, type JiraUserSummary, type UserMapEntry } from "./types.js";
 
 export interface IndexedUserMapEntry extends UserMapEntry {
   label: string;
