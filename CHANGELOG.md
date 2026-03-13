@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/jonbito/jira-markdown/compare/v0.1.4...v1.0.0) (2026-03-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** Node.js 22 is now the supported runtime for development and the published CLI; Bun is optional for running the built artifact.
+
+### Build System
+
+* **runtime:** migrate the cli toolchain to node ([49f9c48](https://github.com/jonbito/jira-markdown/commit/49f9c48102617bfd634a892587adbef10127f0a0))
+
 ## [0.1.4](https://github.com/jonbito/jira-markdown/compare/v0.1.3...v0.1.4) (2026-03-13)
 
 
