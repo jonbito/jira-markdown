@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
@@ -65,7 +66,7 @@ const syncHistorySchema = z.object({
     })
     .default({}),
   updatedAt: z.string().min(1).optional(),
-  version: z.literal(1).default(1)
+  version: z.literal(2)
 });
 
 export type SyncCommandName = "pull" | "push" | "sync";
@@ -83,7 +84,7 @@ function createEmptySyncHistory(): SyncHistory {
     files: {},
     issues: {},
     stats: {},
-    version: 1
+    version: 2
   };
 }
 
@@ -95,8 +96,61 @@ function normalizeIssueKey(issueKey: string): string {
   return issueKey.trim().toUpperCase();
 }
 
-export function toHistoryRelativePath(filePath: string, cwd = process.cwd()): string {
-  return relative(cwd, filePath) || ".";
+export function toHistoryPath(filePath: string): string {
+  const absolutePath = resolve(filePath);
+
+  try {
+    return realpathSync.native(absolutePath);
+  } catch (error) {
+    if (!isFileNotFoundError(error)) {
+      throw error;
+    }
+  }
+
+  const parentPath = dirname(absolutePath);
+  if (parentPath === absolutePath) {
+    return absolutePath;
+  }
+
+  return resolve(toHistoryPath(parentPath), relative(parentPath, absolutePath));
+}
+
+function normalizeLoadedHistory(history: SyncHistory): SyncHistory {
+  const normalizedFiles: SyncHistory["files"] = {};
+  for (const [filePath, record] of Object.entries(history.files)) {
+    normalizedFiles[toHistoryPath(filePath)] = record;
+  }
+
+  const normalizedIssues: SyncHistory["issues"] = {};
+  for (const [issueKey, record] of Object.entries(history.issues)) {
+    normalizedIssues[issueKey] = record.filePath
+      ? {
+          ...record,
+          filePath: toHistoryPath(record.filePath)
+        }
+      : record;
+  }
+
+  const normalizedAttachments: SyncHistory["attachments"] = {};
+  for (const [issueKey, attachmentRecords] of Object.entries(history.attachments)) {
+    normalizedAttachments[issueKey] = {};
+
+    for (const [fileName, record] of Object.entries(attachmentRecords)) {
+      normalizedAttachments[issueKey][fileName] = record.filePath
+        ? {
+            ...record,
+            filePath: toHistoryPath(record.filePath)
+          }
+        : record;
+    }
+  }
+
+  return {
+    ...history,
+    attachments: normalizedAttachments,
+    files: normalizedFiles,
+    issues: normalizedIssues
+  };
 }
 
 export function resolveSyncHistoryPath(
@@ -125,9 +179,18 @@ export async function loadSyncHistory(
   const absolutePath = resolve(cwd, historyPath);
 
   try {
-    const raw = await readFile(absolutePath, "utf8");
+    const raw = JSON.parse(await readFile(absolutePath, "utf8")) as {
+      version?: unknown;
+    };
+
+    if (raw.version === 1) {
+      throw new Error(
+        `Unsupported sync history format at ${absolutePath}: version 1 stored cwd-relative paths. Delete ${absolutePath} and rerun push, pull, or sync to regenerate it.`
+      );
+    }
+
     return {
-      history: syncHistorySchema.parse(JSON.parse(raw) as unknown),
+      history: normalizeLoadedHistory(syncHistorySchema.parse(raw)),
       historyPath: absolutePath
     };
   } catch (error) {
@@ -148,10 +211,15 @@ export async function saveSyncHistory(
   cwd = process.cwd()
 ): Promise<string> {
   const absolutePath = resolve(cwd, historyPath);
+  const normalizedHistory = normalizeLoadedHistory(history);
   await mkdir(dirname(absolutePath), { recursive: true });
   await writeFile(
     absolutePath,
-    `${JSON.stringify({ ...history, updatedAt: new Date().toISOString() }, null, 2)}\n`,
+    `${JSON.stringify(
+      { ...normalizedHistory, updatedAt: new Date().toISOString() },
+      null,
+      2
+    )}\n`,
     "utf8"
   );
   return absolutePath;
@@ -242,15 +310,20 @@ export function rewriteAttachmentHistoryPathsForIssue(
     return;
   }
 
-  const currentPrefix = toHistoryRelativePath(currentDirectoryPath);
-  const nextPrefix = toHistoryRelativePath(nextDirectoryPath);
+  const currentPrefix = toHistoryPath(currentDirectoryPath);
+  const nextPrefix = toHistoryPath(nextDirectoryPath);
 
   for (const record of Object.values(issueAttachments)) {
-    if (!record.filePath || !record.filePath.startsWith(currentPrefix)) {
+    if (!record.filePath) {
       continue;
     }
 
-    record.filePath = `${nextPrefix}${record.filePath.slice(currentPrefix.length)}`;
+    const suffix = relative(currentPrefix, record.filePath);
+    if (suffix.startsWith("..") || isAbsolute(suffix)) {
+      continue;
+    }
+
+    record.filePath = resolve(nextPrefix, suffix);
   }
 }
 
@@ -258,7 +331,7 @@ export function getFileHistoryRecord(
   history: SyncHistory,
   filePath: string
 ): SyncFileHistoryRecord | undefined {
-  return history.files[toHistoryRelativePath(filePath)];
+  return history.files[toHistoryPath(filePath)];
 }
 
 export function setFileHistoryRecord(
@@ -266,11 +339,11 @@ export function setFileHistoryRecord(
   filePath: string,
   record: SyncFileHistoryRecord
 ): void {
-  history.files[toHistoryRelativePath(filePath)] = record;
+  history.files[toHistoryPath(filePath)] = record;
 }
 
 export function deleteFileHistoryRecord(history: SyncHistory, filePath: string): void {
-  delete history.files[toHistoryRelativePath(filePath)];
+  delete history.files[toHistoryPath(filePath)];
 }
 
 export function getIssueHistoryRecord(
@@ -342,7 +415,7 @@ export function shouldSkipPullByHistory(input: {
         record?.lastPulledAttachmentSignature === input.remoteAttachmentSignature) &&
       (!input.currentLocalAttachmentSignature ||
         record?.lastPulledLocalAttachmentSignature === input.currentLocalAttachmentSignature) &&
-      record?.filePath === toHistoryRelativePath(input.targetPath) &&
+      record?.filePath === toHistoryPath(input.targetPath) &&
       record?.lastPulledFileMtimeMs === input.fileMtimeMs
   );
 }

@@ -83,7 +83,7 @@ import {
   setIssueHistoryRecord,
   shouldSkipPullByHistory,
   shouldSkipPushByHistory,
-  toHistoryRelativePath,
+  toHistoryPath,
   type SyncCommandStats,
   type SyncHistory
 } from "./sync-history";
@@ -576,7 +576,7 @@ function recordSyncedIssueState(input: {
   const existing = getIssueHistoryRecord(input.history, input.issueKey) ?? {};
   setIssueHistoryRecord(input.history, input.issueKey, {
     ...existing,
-    filePath: toHistoryRelativePath(input.filePath),
+    filePath: toHistoryPath(input.filePath),
     lastPulledAttachmentSignature: input.remoteAttachmentSignature,
     lastPulledAt: input.syncedAt,
     lastPulledFileMtimeMs: input.fileMtimeMs,
@@ -2008,7 +2008,7 @@ async function applyPlannedLocalAttachmentSyncToJira(input: {
       setAttachmentHistoryRecord(input.history, input.issueKey, localAttachment.fileName, {
         ...operation.historyRecord,
         fileName: localAttachment.fileName,
-        filePath: toHistoryRelativePath(localAttachment.filePath),
+        filePath: toHistoryPath(localAttachment.filePath),
         issueKey: input.issueKey,
         mtimeMs: localAttachment.mtimeMs,
         projectKey: input.projectKey,
@@ -2055,7 +2055,7 @@ async function applyPlannedLocalAttachmentSyncToJira(input: {
 
     setAttachmentHistoryRecord(input.history, input.issueKey, localAttachment.fileName, {
       fileName: localAttachment.fileName,
-      filePath: toHistoryRelativePath(localAttachment.filePath),
+      filePath: toHistoryPath(localAttachment.filePath),
       issueKey: input.issueKey,
       lastUploadedAt: input.pushStats.ranAt,
       mtimeMs: localAttachment.mtimeMs,
@@ -2157,7 +2157,7 @@ async function syncRemoteAttachmentsToLocal(input: {
       localHistoryRecord.remoteSize === attachment.size &&
       localHistoryRecord.remoteCreatedAt === attachment.created &&
       localHistoryRecord.sha256 === localAttachment.sha256 &&
-      localHistoryRecord.filePath === toHistoryRelativePath(targetPath)
+      localHistoryRecord.filePath === toHistoryPath(targetPath)
     ) {
       input.pullStats.skippedUnchangedAttachments += 1;
       continue;
@@ -2194,7 +2194,7 @@ async function syncRemoteAttachmentsToLocal(input: {
 
     setAttachmentHistoryRecord(input.history, input.issueKey, localFileName, {
       fileName: localFileName,
-      filePath: toHistoryRelativePath(localAttachment.filePath),
+      filePath: toHistoryPath(localAttachment.filePath),
       issueKey: input.issueKey,
       lastDownloadedAt: input.pullStats.ranAt,
       mtimeMs: localAttachment.mtimeMs,

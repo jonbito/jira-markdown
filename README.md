@@ -167,6 +167,7 @@ Example `jira-markdown.config.json`:
 By default, the config file lives beside `auth.json` in the local user config directory. `jira-markdown.config.json` holds only hand-edited settings.
 
 `dir` controls where project folders live. Generated field mappings live in `<dir>/.jira-markdown.field-map.json`, generated user labels live in `<dir>/.jira-markdown.user-map.json`, and sync metadata lives in `<dir>/.sync-history`.
+Current `.sync-history` files store absolute filesystem paths for tracked markdown and attachments.
 
 Path resolution rules:
 
@@ -397,7 +398,8 @@ git push origin --follow-tags
 
 ## Notes
 
-- The CLI stores per-file, per-issue, and per-attachment sync metadata in `<dir>/.sync-history` so unchanged markdown, Jira issues, and attachments can be skipped on later runs.
+- The CLI stores per-file, per-issue, and per-attachment sync metadata in `<dir>/.sync-history` using absolute filesystem paths so unchanged markdown, Jira issues, and attachments can be skipped on later runs.
+- If you already have an older `.sync-history` file from a release that stored relative paths, delete it once and rerun `push`, `pull`, or `sync`.
 - `pull` writes Jira issues into `<dir>/<PROJECT>/<KEY> - <Summary>.md`.
 - `push` renames local files into that same canonical shape after create or update.
 - `sync` is a convenience wrapper that runs `push` and then `pull`.

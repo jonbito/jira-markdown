@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { persistStoredAuth } from "./auth-store";
 import {
   buildLocalAttachmentSignature,
   buildRemoteAttachmentSignature
 } from "./attachments";
-import { loadSyncHistory } from "./sync-history";
+import { loadSyncHistory, toHistoryPath } from "./sync-history";
 import {
   pullJiraToMarkdown,
   pushMarkdownToJira,
@@ -163,6 +163,7 @@ function createSequentialFetch(responses: Response[]): {
 }
 
 async function setupWorkspace(input: {
+  dir?: string;
   fileContent: string;
   fileName: string;
   issueSummary: string;
@@ -175,9 +176,11 @@ async function setupWorkspace(input: {
   const directory = await createTempDirectory();
   const authFilePath = join(directory, "auth.json");
   const configPath = join(directory, "jira-markdown.config.json");
-  const issuesDirectory = join(directory, "issues", "ENG");
+  const configuredDir = input.dir ?? "issues";
+  const issuesRoot = resolve(directory, configuredDir);
+  const issuesDirectory = join(issuesRoot, "ENG");
   const filePath = join(issuesDirectory, input.fileName);
-  const historyPath = join(directory, "issues", ".sync-history");
+  const historyPath = join(issuesRoot, ".sync-history");
 
   process.chdir(directory);
   process.env.JIRA_MARKDOWN_AUTH_FILE = authFilePath;
@@ -199,7 +202,7 @@ async function setupWorkspace(input: {
     configPath,
     `${JSON.stringify(
       {
-        dir: "issues",
+        dir: configuredDir,
         projectIssueTypeFieldMap: {
           ENG: {
             Task: {}
@@ -215,13 +218,12 @@ async function setupWorkspace(input: {
   await writeFile(filePath, input.fileContent, "utf8");
 
   const fileStats = await stat(filePath);
-  const relativePath = relative(directory, filePath);
   const emptyLocalAttachmentSignature = buildLocalAttachmentSignature([]);
   const emptyRemoteAttachmentSignature = buildRemoteAttachmentSignature([]);
   const history = {
     attachments: {},
     files: {
-      [relativePath]: {
+      [filePath]: {
         issueKey: "ENG-1",
         lastAttachmentSignature: emptyLocalAttachmentSignature,
         lastSyncedAt: "2026-03-10T00:00:00.000Z",
@@ -230,7 +232,7 @@ async function setupWorkspace(input: {
     },
     issues: {
       "ENG-1": {
-        filePath: relativePath,
+        filePath,
         lastPulledAttachmentSignature: emptyRemoteAttachmentSignature,
         lastPulledAt: "2026-03-10T00:00:00.000Z",
         lastPulledFileMtimeMs: Math.max(0, fileStats.mtimeMs - 1_000),
@@ -243,7 +245,7 @@ async function setupWorkspace(input: {
       }
     },
     stats: {},
-    version: 1
+    version: 2
   };
   await mkdir(dirname(historyPath), { recursive: true });
   await writeFile(historyPath, `${JSON.stringify(history, null, 2)}\n`, "utf8");
@@ -1624,6 +1626,90 @@ describe("field resolver coverage", () => {
     } finally {
       console.log = originalLog;
     }
+  });
+
+  test("push skip-by-history survives cwd changes when config dir is absolute", async () => {
+    const absoluteDir = join(await createTempDirectory(), "issues");
+    const { filePath, historyPath } = await setupWorkspace({
+      dir: absoluteDir,
+      fileContent: "---\nissue: ENG-1\nsummary: Local summary\n---\nRemote body\n",
+      fileName: "ENG-1 - Local summary.md",
+      issueSummary: "Local summary"
+    });
+
+    createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" }
+      ]),
+      jsonResponse(200, createIssueTypesPage()),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Remote body",
+          summary: "Local summary",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(200, {
+        fields: {
+          description: {
+            name: "Description",
+            operations: ["set"]
+          },
+          summary: {
+            name: "Summary",
+            operations: ["set"]
+          }
+        }
+      })
+    ]);
+
+    await pushMarkdownToJira();
+
+    const reloaded = await loadSyncHistory(historyPath);
+    expect(Object.keys(reloaded.history.files)).toEqual([toHistoryPath(filePath)]);
+    expect(reloaded.history.issues["ENG-1"]?.filePath).toBe(toHistoryPath(filePath));
+
+    process.chdir(await createTempDirectory());
+    const { calls } = createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" }
+      ]),
+      jsonResponse(200, createIssueTypesPage()),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Remote body",
+          summary: "Local summary",
+          updated: "2026-03-10T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(200, {
+        fields: {
+          description: {
+            name: "Description",
+            operations: ["set"]
+          },
+          summary: {
+            name: "Summary",
+            operations: ["set"]
+          }
+        }
+      })
+    ]);
+
+    const results = await pushMarkdownToJira();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      action: "skip",
+      issueKey: "ENG-1",
+      summary: "Local summary"
+    });
+    expect(calls.some((call) => call.url.includes("/rest/api/3/issue/ENG-1?"))).toBe(false);
+    expect(calls.some((call) => call.method === "PUT")).toBe(false);
   });
 
   test("push transitions Jira when frontmatter status changes", async () => {

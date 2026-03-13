@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -45,7 +45,7 @@ describe("sync history", () => {
       lastSyncedMtimeMs: 123
     });
     setIssueHistoryRecord(history, "ENG-1", {
-      filePath: "issues/ENG/ENG-1 - Example.md",
+      filePath,
       lastPulledAt: "2026-03-11T00:00:00.000Z",
       lastPulledFileMtimeMs: 123,
       lastSyncedRemoteAttachmentSignature: "remote-attachments",
@@ -68,7 +68,7 @@ describe("sync history", () => {
     const history = {
       attachments: {},
       files: {
-        "issues/ENG/ENG-1 - Example.md": {
+        [join(process.cwd(), "issues", "ENG", "ENG-1 - Example.md")]: {
           issueKey: "ENG-1",
           lastAttachmentSignature: "attachment-signature",
           lastSyncedMtimeMs: 123
@@ -76,7 +76,7 @@ describe("sync history", () => {
       },
       issues: {},
       stats: {},
-      version: 1 as const
+      version: 2 as const
     };
 
     expect(
@@ -96,7 +96,7 @@ describe("sync history", () => {
       files: {},
       issues: {
         "ENG-1": {
-          filePath: "issues/ENG/ENG-1 - Example.md",
+          filePath: join(process.cwd(), "issues", "ENG", "ENG-1 - Example.md"),
           lastPulledAttachmentSignature: "remote-attachments",
           lastPulledFileMtimeMs: 123,
           lastPulledLocalAttachmentSignature: "local-attachments",
@@ -106,7 +106,7 @@ describe("sync history", () => {
         }
       },
       stats: {},
-      version: 1 as const
+      version: 2 as const
     };
 
     expect(
@@ -120,5 +120,19 @@ describe("sync history", () => {
         targetPath: join(process.cwd(), "issues", "ENG", "ENG-1 - Example.md")
       })
     ).toBe(true);
+  });
+
+  test("rejects legacy version 1 history files", async () => {
+    const directory = await createTempDirectory();
+    const historyPath = join(directory, ".sync-history");
+
+    await writeFile(
+      historyPath,
+      `${JSON.stringify({ attachments: {}, files: {}, issues: {}, stats: {}, version: 1 })}\n`
+    );
+
+    await expect(loadSyncHistory(historyPath)).rejects.toThrow(
+      `Unsupported sync history format at ${historyPath}: version 1 stored cwd-relative paths. Delete ${historyPath} and rerun push, pull, or sync to regenerate it.`
+    );
   });
 });
