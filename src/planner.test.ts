@@ -132,6 +132,13 @@ describe("buildEpicPlannerPrompt", () => {
     expect(prompt).toContain(
       "Do not repeat the summary as the first heading or first line of the markdown body."
     );
+    expect(prompt).toContain("Issue-writing best practices:");
+    expect(prompt).toContain(
+      "Each issue body should include concise context or goal plus an `Acceptance criteria:` section with observable bullet points."
+    );
+    expect(prompt).toContain(
+      "Avoid splitting the first level only by implementation layer such as CLI, prompt, refactor, tests, or docs"
+    );
     expect(prompt).toContain("issues/ENG/ENG-1 - Existing epic.md");
     expect(prompt).toContain("Build a better onboarding flow.");
   });
@@ -318,6 +325,12 @@ describe("planEpic", () => {
     expect(await readFile(promptCapturePath, "utf8")).toContain("Target project: ENG");
     expect(await readFile(promptCapturePath, "utf8")).toContain(
       "Use null for optional fields when you have no value"
+    );
+    expect(await readFile(promptCapturePath, "utf8")).toContain(
+      "Make each summary outcome-based and recognizable as done."
+    );
+    expect(await readFile(promptCapturePath, "utf8")).toContain(
+      "Review local examples and avoid drafting an epic or child issue that duplicates existing project scope"
     );
     const argsText = await readFile(argsCapturePath, "utf8");
     expect(argsText).toContain("exec");

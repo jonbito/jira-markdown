@@ -350,7 +350,8 @@ export async function buildEpicPlannerPrompt(input: {
             status: null,
             issueType: input.hierarchy.epicIssueType,
             summary: "Epic summary",
-            body: "Markdown description",
+            body:
+              "Goal:\\nDeliver a usable planning workflow for operators without changing the push flow.\\n\\nAcceptance criteria:\\n- Users can plan a new issue from a requirement file or stdin.\\n- Draft output stays compatible with jira-markdown push behavior.\\n- The planner reuses the configured provider and project field mappings.",
             labels: ["example"],
           },
           {
@@ -363,7 +364,8 @@ export async function buildEpicPlannerPrompt(input: {
             status: null,
             issueType: input.hierarchy.childIssueTypes[0] ?? "Story",
             summary: "Child work item summary",
-            body: "Implementation notes",
+            body:
+              "Goal:\\nSupport invoking the new planning flow from the CLI with predictable options.\\n\\nAcceptance criteria:\\n- The command is available under the existing plan command group.\\n- Users can preview the prompt and run a dry run.\\n- Help text explains when to use the command.",
             labels: null
           },
           {
@@ -375,7 +377,8 @@ export async function buildEpicPlannerPrompt(input: {
             status: null,
             issueType: input.hierarchy.subtaskIssueType,
             summary: "Subtask summary",
-            body: "Execution detail"
+            body:
+              "Goal:\\nAdd option parsing for the CLI entrypoint.\\n\\nAcceptance criteria:\\n- Required options are parsed and passed through.\\n- Invalid combinations fail with a clear error."
           }
         ]
       },
@@ -393,6 +396,14 @@ export async function buildEpicPlannerPrompt(input: {
     "- localId values must be unique and stable identifiers.",
     "- parentRef must reference another issue localId in the same response.",
     "- Use null for optional fields when you have no value: assignee, frontmatter, labels, parentRef, and status.",
+    "",
+    "Issue-writing best practices:",
+    "- Make each summary outcome-based and recognizable as done. Prefer deliverable language over implementation-only labels such as \"refactor\", \"wiring\", or \"tests\" when a user-visible or workflow-visible outcome exists.",
+    "- Each issue body should include concise context or goal plus an `Acceptance criteria:` section with observable bullet points.",
+    "- Prefer top-level children that represent independently completable deliverables or capabilities. Avoid splitting the first level only by implementation layer such as CLI, prompt, refactor, tests, or docs unless the requirement is primarily internal infrastructure work.",
+    "- Refactor-only, test-only, or documentation-only work should usually support a parent deliverable instead of becoming peer tasks unless they are independently valuable to track.",
+    "- Use Stories for end-user functionality and Tasks for technical or internal work when both are available.",
+    "- Review local examples and avoid drafting an epic or child issue that duplicates existing project scope with only minor wording changes.",
     "",
     "Markdown/frontmatter rules for jira-markdown draft issues:",
     "- New planned issues must omit the Jira issue key.",
