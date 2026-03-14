@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/jonbito/jira-markdown/compare/v1.1.0...v1.2.0) (2026-03-14)
+
+
+### Features
+
+* **planner:** add AI epic planning workflow ([3d3e688](https://github.com/jonbito/jira-markdown/commit/3d3e6881de663430f72451017148f7d2d4d0d26d))
+* **planner:** guide epic prompts toward jira best practices ([ae9d06d](https://github.com/jonbito/jira-markdown/commit/ae9d06d4d3977e7c2c04aa8ccb29bedf22e52fc7))
+
 ## [1.1.0](https://github.com/jonbito/jira-markdown/compare/v1.0.0...v1.1.0) (2026-03-13)
 
 
