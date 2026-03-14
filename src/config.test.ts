@@ -90,6 +90,7 @@ describe("initAppConfig", () => {
     const result = await initAppConfig({ configPath });
 
     expect(result.created).toBe(true);
+    expect(result.config.ai).toEqual({});
     expect(result.config.dir).toBe("issues");
     expect(result.config.projectIssueTypeFieldMap).toEqual({});
     expect(result.config.userMap).toEqual({});
@@ -221,6 +222,139 @@ describe("initAppConfig", () => {
     });
     expect(loaded.config.userMap["Alice Example"]).toEqual({
       accountId: "557058:alice"
+    });
+  });
+
+  test("loads codex planner config from the main config file", async () => {
+    const directory = await createTempDirectory();
+    const configPath = join(directory, "jira-markdown.config.json");
+
+    await writeFile(
+      configPath,
+      `${JSON.stringify(
+        {
+          ai: {
+            planner: {
+              codex: {
+                profile: "work",
+                reasoningEffort: "xhigh"
+              },
+              model: "gpt-5.4",
+              provider: "codex",
+              timeoutMs: 60000
+            }
+          },
+          dir: "issues"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const loaded = await loadAppConfig(configPath);
+
+    expect(loaded.config.ai.planner).toEqual({
+      codex: {
+        profile: "work",
+        reasoningEffort: "xhigh"
+      },
+      model: "gpt-5.4",
+      provider: "codex",
+      timeoutMs: 60000
+    });
+  });
+
+  test("loads claude planner config from the main config file", async () => {
+    const directory = await createTempDirectory();
+    const configPath = join(directory, "jira-markdown.config.json");
+
+    await writeFile(
+      configPath,
+      `${JSON.stringify(
+        {
+          ai: {
+            planner: {
+              model: "sonnet",
+              provider: "claude",
+              timeoutMs: 45000
+            }
+          },
+          dir: "issues"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const loaded = await loadAppConfig(configPath);
+
+    expect(loaded.config.ai.planner).toEqual({
+      model: "sonnet",
+      provider: "claude",
+      timeoutMs: 45000
+    });
+  });
+
+  test("rejects legacy planner command config", async () => {
+    const directory = await createTempDirectory();
+    const configPath = join(directory, "jira-markdown.config.json");
+
+    await writeFile(
+      configPath,
+      `${JSON.stringify(
+        {
+          ai: {
+            planner: {
+              args: ["exec"],
+              command: "codex",
+              timeoutMs: 60000
+            }
+          },
+          dir: "issues"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(loadAppConfig(configPath)).rejects.toThrow(
+      'Legacy ai.planner.command/args config is no longer supported.'
+    );
+  });
+
+  test("saves provider-based planner config", async () => {
+    const directory = await createTempDirectory();
+    const configPath = join(directory, "jira-markdown.config.json");
+
+    const result = await initAppConfig({
+      configPath,
+      createConfig: () => ({
+        ...createDefaultAppConfig(),
+        ai: {
+          planner: {
+            codex: {
+              profile: "work",
+              reasoningEffort: "xhigh"
+            },
+            model: "gpt-5.4",
+            provider: "codex",
+            timeoutMs: 60000
+          }
+        }
+      })
+    });
+
+    expect(result.config.ai.planner).toEqual({
+      codex: {
+        profile: "work",
+        reasoningEffort: "xhigh"
+      },
+      model: "gpt-5.4",
+      provider: "codex",
+      timeoutMs: 60000
     });
   });
 

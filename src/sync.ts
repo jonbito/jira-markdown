@@ -51,8 +51,7 @@ import { buildCoreIssuePayload } from "./issue-payload.js";
 import { JiraApiError, JiraClient } from "./jira.js";
 import {
   loadMarkdownDocument,
-  writeMarkdownDocument,
-  writeIssueKeyToFrontmatter
+  writeMarkdownDocument
 } from "./markdown.js";
 import {
   inferProjectKeyFromFilePath
@@ -129,6 +128,7 @@ interface LocalIssueRecord {
   filePath: string;
   hierarchyFresh: boolean;
   issueKey: string;
+  localId?: string | undefined;
   mtimeMs: number;
   projectKey?: string | undefined;
 }
@@ -137,8 +137,10 @@ interface PushExecutionContext {
   catalog: FieldCatalog;
   config: AppConfig;
   conflictMode: ConflictMode;
+  createdIssueKeysByLocalId: Map<string, string>;
   files: string[];
   history: SyncHistory;
+  localDraftIssueIndex: Map<string, LocalIssueRecord>;
   issueKeyField: string;
   jira: JiraClient;
   localIssueIndex: Map<string, LocalIssueRecord>;
@@ -164,6 +166,10 @@ interface PreparedLocalIssue {
   core: ReturnType<typeof buildCoreIssuePayload>;
   currentAttachmentState: LocalAttachmentState;
   currentFileMtimeMs: number;
+  draftContext: {
+    localId?: string | undefined;
+    parentRef?: string | undefined;
+  };
   document: MarkdownIssueDocument;
   fieldInputs: PreparedFieldInput[];
   fields: Record<string, unknown>;
@@ -263,11 +269,31 @@ function asTrimmedString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Record<string, unknown>;
+}
+
 function normalizeIssueKeyIdentifier(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed && /^[A-Za-z][A-Za-z0-9_]*-\d+$/u.test(trimmed)
     ? trimmed.toUpperCase()
     : undefined;
+}
+
+function normalizeLocalIdIdentifier(value: string | undefined): string | undefined {
+  return value?.trim() ? normalizeLookupKey(value) : undefined;
+}
+
+function extractDraftLocalId(frontmatter: Record<string, unknown>): string | undefined {
+  return asTrimmedString(frontmatter.localId);
+}
+
+function extractDraftParentRef(frontmatter: Record<string, unknown>): string | undefined {
+  return asTrimmedString(frontmatter.parentRef);
 }
 
 function resolveParentIssueIdentifier(value: unknown): string | undefined {
@@ -426,10 +452,12 @@ async function loadLocalIssueState(
   includeConfiguredProjects = true
 ): Promise<{
   files: string[];
+  localDraftIssueIndex: Map<string, LocalIssueRecord>;
   localIssueIndex: Map<string, LocalIssueRecord>;
   projectKeys: Set<string>;
 }> {
   const files = await collectMarkdownFiles(config.dir);
+  const localDraftIssueIndex = new Map<string, LocalIssueRecord>();
   const localIssueIndex = new Map<string, LocalIssueRecord>();
   const projectKeys = includeConfiguredProjects
     ? collectConfiguredProjectKeys(explicitProjects)
@@ -444,6 +472,7 @@ async function loadLocalIssueState(
   for (const filePath of files) {
     const document = await loadMarkdownDocument(filePath);
     const fileStats = await stat(filePath);
+    const localId = extractDraftLocalId(document.frontmatter);
     const issueKey = resolveIssueKey({
       filePath: document.filePath,
       frontmatter: document.frontmatter,
@@ -458,6 +487,23 @@ async function loadLocalIssueState(
 
     addProjectKey(projectKeys, projectKey);
 
+    if (localId) {
+      const localIdKey = normalizeLocalIdIdentifier(localId) as string;
+      if (localDraftIssueIndex.has(localIdKey)) {
+        throw new Error(`Duplicate localId "${localId}" found in local issue files.`);
+      }
+
+      localDraftIssueIndex.set(localIdKey, {
+        document,
+        filePath: document.filePath,
+        hierarchyFresh: false,
+        issueKey: issueKey ?? "",
+        localId,
+        mtimeMs: fileStats.mtimeMs,
+        projectKey
+      });
+    }
+
     if (!issueKey) {
       continue;
     }
@@ -467,6 +513,7 @@ async function loadLocalIssueState(
       filePath: document.filePath,
       hierarchyFresh: false,
       issueKey,
+      localId,
       mtimeMs: fileStats.mtimeMs,
       projectKey
     });
@@ -474,6 +521,7 @@ async function loadLocalIssueState(
 
   return {
     files,
+    localDraftIssueIndex,
     localIssueIndex,
     projectKeys
   };
@@ -830,6 +878,7 @@ async function relocateSkippedLocalIssueToCanonicalPath(input: {
     filePath: finalFilePath,
     hierarchyFresh: true,
     issueKey,
+    localId: extractDraftLocalId(updatedDocument.frontmatter),
     mtimeMs: finalFileStats.mtimeMs,
     projectKey: finalProjectKey
   });
@@ -851,11 +900,31 @@ async function prepareLocalIssueForPush(input: {
 }): Promise<PreparedLocalIssue> {
   const document = await loadMarkdownDocument(input.filePath);
   const currentFileStats = await stat(input.filePath);
+  const localId = extractDraftLocalId(document.frontmatter);
+  const parentRef = extractDraftParentRef(document.frontmatter);
   const issueKey = resolveIssueKey({
     filePath: document.filePath,
     frontmatter: document.frontmatter,
     issueKeyField: input.issueKeyField
   });
+  if (parentRef && asTrimmedString(document.frontmatter.parent)) {
+    throw new Error(
+      `Cannot use both frontmatter.parent and frontmatter.parentRef in ${input.filePath}.`
+    );
+  }
+
+  if (parentRef && asRecord(document.frontmatter.fields)?.parent !== undefined) {
+    throw new Error(
+      `Cannot use both frontmatter.parentRef and fields.parent in ${input.filePath}.`
+    );
+  }
+
+  if (parentRef && issueKey) {
+    throw new Error(
+      `Cannot use draft-only frontmatter.parentRef on existing Jira issue ${issueKey} (${input.filePath}).`
+    );
+  }
+
   const core = buildCoreIssuePayload({
     body: document.body,
     dir: input.config.dir,
@@ -900,6 +969,10 @@ async function prepareLocalIssueForPush(input: {
     core,
     currentAttachmentState,
     currentFileMtimeMs: currentFileStats.mtimeMs,
+    draftContext: {
+      ...(localId ? { localId } : {}),
+      ...(parentRef ? { parentRef } : {})
+    },
     document,
     fieldInputs,
     fields,
@@ -2924,6 +2997,7 @@ async function applyLocalIssueUpdateToJira(input: {
     filePath: finalFilePath,
     hierarchyFresh: true,
     issueKey,
+    localId: extractDraftLocalId(updatedDocument.frontmatter),
     mtimeMs: finalFileStats.mtimeMs,
     projectKey: finalProjectKey
   });
@@ -2942,12 +3016,204 @@ async function applyLocalIssueUpdateToJira(input: {
   };
 }
 
+function orderPreparedIssuesForPush(issues: PreparedLocalIssue[]): PreparedLocalIssue[] {
+  const createIssues = issues.filter((issue) => issue.action === "create");
+  const updateIssues = issues.filter((issue) => issue.action !== "create");
+  const createIssuesByLocalId = new Map<string, PreparedLocalIssue>();
+  const orderedCreateIssues: PreparedLocalIssue[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+
+  for (const issue of createIssues) {
+    const normalizedLocalId = normalizeLocalIdIdentifier(issue.draftContext.localId);
+    if (!normalizedLocalId) {
+      continue;
+    }
+
+    if (createIssuesByLocalId.has(normalizedLocalId)) {
+      throw new Error(`Duplicate localId "${issue.draftContext.localId}" found during push.`);
+    }
+
+    createIssuesByLocalId.set(normalizedLocalId, issue);
+  }
+
+  const visit = (issue: PreparedLocalIssue): void => {
+    const normalizedLocalId = normalizeLocalIdIdentifier(issue.draftContext.localId);
+    if (!normalizedLocalId) {
+      orderedCreateIssues.push(issue);
+      return;
+    }
+
+    if (visited.has(normalizedLocalId)) {
+      return;
+    }
+
+    if (visiting.has(normalizedLocalId)) {
+      throw new Error(`Detected a cycle in draft parentRef values involving "${issue.draftContext.localId}".`);
+    }
+
+    visiting.add(normalizedLocalId);
+    const normalizedParentRef = normalizeLocalIdIdentifier(issue.draftContext.parentRef);
+    if (normalizedParentRef) {
+      const localParent = createIssuesByLocalId.get(normalizedParentRef);
+      if (localParent) {
+        visit(localParent);
+      }
+    }
+
+    visiting.delete(normalizedLocalId);
+    visited.add(normalizedLocalId);
+    orderedCreateIssues.push(issue);
+  };
+
+  for (const issue of createIssues) {
+    visit(issue);
+  }
+
+  return [...orderedCreateIssues, ...updateIssues];
+}
+
+function resolveDraftParentIssueKey(input: {
+  createdIssueKeysByLocalId: Map<string, string>;
+  dryRun?: boolean | undefined;
+  localDraftIssueIndex: Map<string, LocalIssueRecord>;
+  localIssue: PreparedLocalIssue;
+  rootDir: string;
+}): { parentIssueKey?: string | undefined; unresolvedParentRef?: string | undefined } {
+  const parentRef = input.localIssue.draftContext.parentRef;
+  const normalizedParentRef = normalizeLocalIdIdentifier(parentRef);
+  if (!normalizedParentRef) {
+    return {};
+  }
+
+  const currentProjectKey =
+    input.localIssue.mappingScope.projectKey ?? input.localIssue.core.projectKey;
+  const createdIssueKey = input.createdIssueKeysByLocalId.get(normalizedParentRef);
+  if (createdIssueKey) {
+    return {
+      parentIssueKey: createdIssueKey
+    };
+  }
+
+  const parentRecord = input.localDraftIssueIndex.get(normalizedParentRef);
+  if (!parentRecord) {
+    throw new Error(
+      `Cannot resolve draft parentRef "${parentRef}" for ${input.localIssue.filePath}.`
+    );
+  }
+
+  const parentProjectKey =
+    parentRecord.projectKey ??
+    inferProjectKeyFromFilePath(parentRecord.filePath, input.rootDir) ??
+    inferProjectKeyFromIssueKey(parentRecord.issueKey);
+  if (
+    currentProjectKey &&
+    parentProjectKey &&
+    normalizeProjectKey(currentProjectKey) !== normalizeProjectKey(parentProjectKey)
+  ) {
+    throw new Error(
+      `Cannot resolve draft parentRef "${parentRef}" for ${input.localIssue.filePath} across projects.`
+    );
+  }
+
+  const normalizedIssueKey = normalizeIssueKeyIdentifier(parentRecord.issueKey);
+  if (normalizedIssueKey) {
+    return {
+      parentIssueKey: normalizedIssueKey
+    };
+  }
+
+  if (input.dryRun) {
+    return {
+      unresolvedParentRef: parentRef
+    };
+  }
+
+  throw new Error(
+    `Draft parent "${parentRef}" for ${input.localIssue.filePath} does not have a Jira issue key yet. Ensure the parent draft is included in the same push run.`
+  );
+}
+
+function applyDraftParentReferenceToCreateFields(input: {
+  createdIssueKeysByLocalId: Map<string, string>;
+  dryRun?: boolean | undefined;
+  fields: Record<string, unknown>;
+  localDraftIssueIndex: Map<string, LocalIssueRecord>;
+  localIssue: PreparedLocalIssue;
+  rootDir: string;
+}): { parentIssueKey?: string | undefined; skippedValidationForDraftParent: boolean } {
+  const parentRef = input.localIssue.draftContext.parentRef;
+  if (!parentRef) {
+    return {
+      parentIssueKey: extractParentReference(input.fields.parent)?.key,
+      skippedValidationForDraftParent: false
+    };
+  }
+
+  if (input.fields.parent !== undefined) {
+    throw new Error(
+      `Cannot use draft-only frontmatter.parentRef together with an existing parent field in ${input.localIssue.filePath}.`
+    );
+  }
+
+  const resolvedParent = resolveDraftParentIssueKey({
+    createdIssueKeysByLocalId: input.createdIssueKeysByLocalId,
+    dryRun: input.dryRun,
+    localDraftIssueIndex: input.localDraftIssueIndex,
+    localIssue: input.localIssue,
+    rootDir: input.rootDir
+  });
+  if (resolvedParent.parentIssueKey) {
+    input.fields.parent = {
+      key: resolvedParent.parentIssueKey
+    };
+    return {
+      parentIssueKey: resolvedParent.parentIssueKey,
+      skippedValidationForDraftParent: false
+    };
+  }
+
+  input.fields.parent = {
+    key: `draft:${resolvedParent.unresolvedParentRef as string}`
+  };
+  return {
+    skippedValidationForDraftParent: true
+  };
+}
+
+async function writeCreatedDraftIssueDocument(input: {
+  document: MarkdownIssueDocument;
+  issueKey: string;
+  issueKeyField: string;
+  parentIssueKey?: string | undefined;
+}): Promise<MarkdownIssueDocument> {
+  const nextFrontmatter = {
+    ...input.document.frontmatter,
+    [input.issueKeyField]: input.issueKey
+  };
+  delete nextFrontmatter.localId;
+  delete nextFrontmatter.parentRef;
+
+  if (input.parentIssueKey) {
+    nextFrontmatter.parent = input.parentIssueKey;
+  }
+
+  const nextDocument: MarkdownIssueDocument = {
+    ...input.document,
+    frontmatter: nextFrontmatter
+  };
+  await writeMarkdownDocument(nextDocument);
+  return loadMarkdownDocument(input.document.filePath);
+}
+
 async function applyLocalIssueCreateToJira(input: {
   config: AppConfig;
+  createdIssueKeysByLocalId: Map<string, string>;
   dryRun?: boolean | undefined;
   history: SyncHistory;
   issueKeyField: string;
   jira: JiraClient;
+  localDraftIssueIndex: Map<string, LocalIssueRecord>;
   localIssue: PreparedLocalIssue;
   localIssueIndex: Map<string, LocalIssueRecord>;
   rememberUsers?: RememberUsers | undefined;
@@ -2962,16 +3228,26 @@ async function applyLocalIssueCreateToJira(input: {
     operationFields: createContext.createFields,
     ...(input.rememberUsers ? { rememberUsers: input.rememberUsers } : {})
   });
-  await ensureHierarchyParentValid({
-    action: "create",
+  const draftParentResolution = applyDraftParentReferenceToCreateFields({
+    createdIssueKeysByLocalId: input.createdIssueKeysByLocalId,
+    dryRun: input.dryRun,
     fields: resolvedCreateFields,
-    filePath: input.localIssue.filePath,
-    isSubtask: createContext.issueType.subtask,
-    issueTypeName: createContext.issueType.name,
-    jira: input.jira,
-    operationFields: createContext.createFields,
-    projectKey: createContext.projectKey
+    localDraftIssueIndex: input.localDraftIssueIndex,
+    localIssue: input.localIssue,
+    rootDir: input.config.dir
   });
+  if (!draftParentResolution.skippedValidationForDraftParent) {
+    await ensureHierarchyParentValid({
+      action: "create",
+      fields: resolvedCreateFields,
+      filePath: input.localIssue.filePath,
+      isSubtask: createContext.issueType.subtask,
+      issueTypeName: createContext.issueType.name,
+      jira: input.jira,
+      operationFields: createContext.createFields,
+      projectKey: createContext.projectKey
+    });
+  }
 
   if (input.dryRun) {
     console.log(`[DRY RUN] CREATE ${input.localIssue.filePath}`);
@@ -2994,14 +3270,24 @@ async function applyLocalIssueCreateToJira(input: {
       filePath: input.localIssue.filePath
     });
   }
+  if (input.localIssue.draftContext.localId) {
+    input.createdIssueKeysByLocalId.set(
+      normalizeLocalIdIdentifier(input.localIssue.draftContext.localId) as string,
+      created.key
+    );
+  }
 
   let updatedDocument = input.localIssue.document;
   let finalFilePath = input.localIssue.filePath;
   const shouldWriteBack = input.writeBack ?? true;
 
   if (shouldWriteBack) {
-    await writeIssueKeyToFrontmatter(updatedDocument, input.issueKeyField, created.key);
-    updatedDocument = await loadMarkdownDocument(input.localIssue.filePath);
+    updatedDocument = await writeCreatedDraftIssueDocument({
+      document: updatedDocument,
+      issueKey: created.key,
+      issueKeyField: input.issueKeyField,
+      parentIssueKey: draftParentResolution.parentIssueKey
+    });
   }
 
   const finalProjectKey =
@@ -3128,6 +3414,7 @@ async function applyLocalIssueCreateToJira(input: {
     filePath: finalFilePath,
     hierarchyFresh: true,
     issueKey: created.key,
+    localId: extractDraftLocalId(updatedDocument.frontmatter),
     mtimeMs: finalFileStats.mtimeMs,
     projectKey: finalProjectKey
   });
@@ -3453,6 +3740,7 @@ async function executePush(input: PushExecutionContext & {
 }): Promise<PushExecutionResult> {
   const pushedIssueKeys = new Set<string>();
   const results: SyncFileResult[] = [];
+  const preparedIssues: PreparedLocalIssue[] = [];
 
   for (const filePath of input.files) {
     const localIssue = await prepareLocalIssueForPush({
@@ -3468,6 +3756,11 @@ async function executePush(input: PushExecutionContext & {
       input.projectKeys,
       localIssue.mappingScope.projectKey ?? localIssue.core.projectKey
     );
+    preparedIssues.push(localIssue);
+  }
+
+  for (const localIssue of orderPreparedIssuesForPush(preparedIssues)) {
+    const filePath = localIssue.filePath;
 
     if (
       shouldSkipPushByHistory({
@@ -3527,10 +3820,12 @@ async function executePush(input: PushExecutionContext & {
     if (localIssue.action === "create") {
       const result = await applyLocalIssueCreateToJira({
         config: input.config,
+        createdIssueKeysByLocalId: input.createdIssueKeysByLocalId,
         dryRun: input.dryRun,
         history: input.history,
         issueKeyField: input.issueKeyField,
         jira: input.jira,
+        localDraftIssueIndex: input.localDraftIssueIndex,
         localIssue,
         localIssueIndex: input.localIssueIndex,
         rememberUsers: input.rememberUsers,
@@ -3872,7 +4167,10 @@ export async function pushMarkdownToJira(
   const { history, historyPath } = await loadSyncHistory(
     resolveSyncHistoryPath(config.dir)
   );
-  const { files, localIssueIndex, projectKeys } = await loadLocalIssueState(config, issueKeyField);
+  const { files, localDraftIssueIndex, localIssueIndex, projectKeys } = await loadLocalIssueState(
+    config,
+    issueKeyField
+  );
 
   if (files.length === 0) {
     throw new Error(
@@ -3902,9 +4200,11 @@ export async function pushMarkdownToJira(
     history,
     issueKeyField,
     jira,
+    localDraftIssueIndex,
     localIssueIndex,
     projectKeys,
     pushStats,
+    createdIssueKeysByLocalId: new Map(),
     rememberUsers: userMapTracker.rememberUsers,
     resolveConflict: options.resolveConflict,
     writeBack: options.writeBack
@@ -3997,7 +4297,7 @@ export async function syncMarkdownToJira(
   const { history, historyPath } = await loadSyncHistory(
     resolveSyncHistoryPath(config.dir)
   );
-  const { files, localIssueIndex, projectKeys } = await loadLocalIssueState(
+  const { files, localDraftIssueIndex, localIssueIndex, projectKeys } = await loadLocalIssueState(
     config,
     issueKeyField,
     options.projects ?? []
@@ -4039,9 +4339,11 @@ export async function syncMarkdownToJira(
       history,
       issueKeyField,
       jira,
+      localDraftIssueIndex,
       localIssueIndex,
       projectKeys,
       pushStats: syncStats,
+      createdIssueKeysByLocalId: new Map(),
       rememberUsers: userMapTracker.rememberUsers,
       resolveConflict: options.resolveConflict,
       writeBack: options.writeBack

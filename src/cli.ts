@@ -7,6 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { authLogin, authLogout, authStatus } from "./auth.js";
 import { createDefaultAppConfig, initAppConfig } from "./config.js";
 import { inspectIssueAdf } from "./inspect.js";
+import { planEpic } from "./planner.js";
 import {
   listSprints,
   pullJiraToMarkdown,
@@ -19,6 +20,16 @@ import {
 } from "./types.js";
 
 function collectProjectOption(value: string, previous: string[] = []): string[] {
+  return [
+    ...previous,
+    ...value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  ];
+}
+
+function collectListOption(value: string, previous: string[] = []): string[] {
   return [
     ...previous,
     ...value
@@ -282,6 +293,43 @@ inspectCommand
   .description("Print the raw Jira ADF description for an issue.")
   .action(async (issueKey: string) => {
     await inspectIssueAdf(issueKey);
+  });
+
+const planCommand = program
+  .command("plan")
+  .description("Generate draft Jira issue hierarchies with an external AI planner.");
+
+planCommand
+  .command("epic")
+  .description("Plan a new epic and write draft markdown issues under the target project.")
+  .requiredOption("--project <key>", "Jira project key to plan under")
+  .option("-c, --config <path>", "Path to config file")
+  .option("--input <path>", "Read the business requirement from a file")
+  .option("--dry-run", "Preview the draft files without writing them", false)
+  .option("--print-prompt", "Print the assembled planner prompt without invoking the AI command", false)
+  .option("--verbose", "Show raw AI planner stderr while planning", false)
+  .option("--epic-type <name>", "Root issue type to generate. Defaults to Epic.")
+  .option(
+    "--child-type <name>",
+    "Allowed direct child issue type (repeatable or comma-separated). Defaults to the project's discovered non-epic issue types.",
+    collectListOption
+  )
+  .option(
+    "--subtask-type <name>",
+    "Allowed grandchild sub-task issue type. Defaults to Subtask."
+  )
+  .action(async (options) => {
+    await planEpic({
+      childIssueTypes: options.childType,
+      configPath: options.config,
+      dryRun: options.dryRun,
+      epicIssueType: options.epicType,
+      inputPath: options.input,
+      printPrompt: options.printPrompt,
+      projectKey: options.project,
+      subtaskIssueType: options.subtaskType,
+      verbose: options.verbose
+    });
   });
 
 program

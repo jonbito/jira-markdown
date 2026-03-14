@@ -909,6 +909,238 @@ describe("modern parent hierarchy support", () => {
     expect(createPayload.fields?.issuetype).toEqual({ name: "Sub-task" });
   });
 
+  test("push creates draft parentRef hierarchies in dependency order", async () => {
+    await setupProjectWorkspace({
+      config: {
+        dir: "issues",
+        projectIssueTypeFieldMap: {
+          ENG: {
+            Epic: {},
+            Story: {},
+            "Sub-task": {}
+          }
+        }
+      }
+    });
+
+    const draftDirectory = join(process.cwd(), "issues", "ENG", "_drafts", "onboarding-epic");
+    await mkdir(draftDirectory, { recursive: true });
+    await writeFile(
+      join(draftDirectory, "onboarding-epic.md"),
+      [
+        "---",
+        "localId: onboarding-epic",
+        "issueType: Epic",
+        "summary: Root epic",
+        "---",
+        "",
+        "# Root epic",
+        "",
+        "Plan the rollout"
+      ].join("\n"),
+      "utf8"
+    );
+    await writeFile(
+      join(draftDirectory, "story-automation.md"),
+      [
+        "---",
+        "localId: story-automation",
+        "parentRef: onboarding-epic",
+        "issueType: Story",
+        "summary: Automate onboarding",
+        "---",
+        "",
+        "# Automate onboarding",
+        "",
+        "Build the workflow"
+      ].join("\n"),
+      "utf8"
+    );
+    await writeFile(
+      join(draftDirectory, "subtask-api.md"),
+      [
+        "---",
+        "localId: subtask-api",
+        "parentRef: story-automation",
+        "issueType: Sub-task",
+        "summary: Implement API integration",
+        "---",
+        "",
+        "# Implement API integration",
+        "",
+        "Wire the endpoint"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const issueTypes = createIssueTypesPage([
+      { id: "10000", name: "Epic", subtask: false },
+      { id: "10001", name: "Story", subtask: false },
+      { id: "10002", name: "Sub-task", subtask: true }
+    ]);
+    const { calls } = createSequentialFetch([
+      jsonResponse(200, [
+        { id: "summary", name: "Summary" },
+        { id: "description", name: "Description" },
+        { id: "parent", name: "Parent" }
+      ]),
+      jsonResponse(200, issueTypes),
+      jsonResponse(200, issueTypes),
+      jsonResponse(200, {
+        fields: [],
+        maxResults: 50,
+        startAt: 0,
+        total: 0
+      }),
+      jsonResponse(201, { id: "10010", key: "ENG-10" }),
+      new Response(null, { status: 204 }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Plan the rollout",
+          id: "10010",
+          issueKey: "ENG-10",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-12T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(200, issueTypes),
+      jsonResponse(200, {
+        fields: [
+          {
+            fieldId: "parent",
+            name: "Parent",
+            required: false
+          }
+        ],
+        maxResults: 50,
+        startAt: 0,
+        total: 1
+      }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Plan the rollout",
+          issueKey: "ENG-10",
+          issueTypeName: "Epic",
+          projectKey: "ENG",
+          summary: "Root epic",
+          updated: "2026-03-12T00:00:00.000Z"
+        })
+      ),
+      jsonResponse(201, { id: "10011", key: "ENG-11" }),
+      new Response(null, { status: 204 }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Build the workflow",
+          id: "10011",
+          issueKey: "ENG-11",
+          issueTypeName: "Story",
+          parentKey: "ENG-10",
+          projectKey: "ENG",
+          summary: "Automate onboarding",
+          updated: "2026-03-12T00:00:01.000Z"
+        })
+      ),
+      jsonResponse(200, issueTypes),
+      jsonResponse(200, {
+        fields: [
+          {
+            fieldId: "parent",
+            name: "Parent",
+            required: true
+          }
+        ],
+        maxResults: 50,
+        startAt: 0,
+        total: 1
+      }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Build the workflow",
+          issueKey: "ENG-11",
+          issueTypeName: "Story",
+          parentKey: "ENG-10",
+          projectKey: "ENG",
+          summary: "Automate onboarding",
+          updated: "2026-03-12T00:00:01.000Z"
+        })
+      ),
+      jsonResponse(201, { id: "10012", key: "ENG-12" }),
+      new Response(null, { status: 204 }),
+      jsonResponse(
+        200,
+        createIssueRecord({
+          description: "Wire the endpoint",
+          id: "10012",
+          issueKey: "ENG-12",
+          issueTypeName: "Sub-task",
+          issueTypeSubtask: true,
+          parentKey: "ENG-11",
+          projectKey: "ENG",
+          summary: "Implement API integration",
+          updated: "2026-03-12T00:00:02.000Z"
+        })
+      )
+    ]);
+
+    const results = await pushMarkdownToJira();
+
+    expect(results).toHaveLength(3);
+    expect(results[0]?.issueKey).toBe("ENG-10");
+    expect(results[1]?.issueKey).toBe("ENG-11");
+    expect(results[2]?.issueKey).toBe("ENG-12");
+
+    const epicPath = join(process.cwd(), "issues", "ENG", "ENG-10 - Root epic.md");
+    const storyPath = join(
+      process.cwd(),
+      "issues",
+      "ENG",
+      "ENG-10 - Root epic",
+      "ENG-11 - Automate onboarding.md"
+    );
+    const subtaskPath = join(
+      process.cwd(),
+      "issues",
+      "ENG",
+      "ENG-10 - Root epic",
+      "ENG-11 - Automate onboarding",
+      "ENG-12 - Implement API integration.md"
+    );
+
+    const epicContent = await readFile(epicPath, "utf8");
+    const storyContent = await readFile(storyPath, "utf8");
+    const subtaskContent = await readFile(subtaskPath, "utf8");
+    expect(epicContent).toContain("issue: ENG-10");
+    expect(epicContent).not.toContain("localId:");
+    expect(storyContent).toContain("issue: ENG-11");
+    expect(storyContent).toContain("parent: ENG-10");
+    expect(storyContent).not.toContain("parentRef:");
+    expect(subtaskContent).toContain("issue: ENG-12");
+    expect(subtaskContent).toContain("parent: ENG-11");
+    expect(subtaskContent).not.toContain("localId:");
+
+    const createCalls = calls.filter(
+      (call) => call.method === "POST" && call.url.endsWith("/rest/api/3/issue")
+    );
+    expect(createCalls).toHaveLength(3);
+    const [epicCreate, storyCreate, subtaskCreate] = createCalls.map((call) =>
+      JSON.parse(call.body ?? "{}") as {
+        fields?: Record<string, unknown>;
+      }
+    );
+    expect(epicCreate).toBeDefined();
+    expect(storyCreate).toBeDefined();
+    expect(subtaskCreate).toBeDefined();
+    expect(epicCreate?.fields?.parent).toBeUndefined();
+    expect(storyCreate?.fields?.parent).toEqual({ key: "ENG-10" });
+    expect(subtaskCreate?.fields?.parent).toEqual({ key: "ENG-11" });
+  });
+
   test("push allows modern parent on non-subtask creates when Jira exposes the field", async () => {
     await setupProjectWorkspace({
       fileContent:

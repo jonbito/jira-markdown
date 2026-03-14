@@ -35,7 +35,41 @@ const userMapEntrySchema = z.object({
   email: z.string().min(1).optional()
 });
 
+const plannerTimeoutSchema = z.coerce.number().int().positive().default(120_000);
+const plannerReasoningEffortSchema = z.enum([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh"
+]);
+
+const codexPlannerSchema = z.object({
+  codex: z
+    .object({
+      profile: z.string().min(1).optional(),
+      reasoningEffort: plannerReasoningEffortSchema.optional()
+    })
+    .optional(),
+  model: z.string().min(1).optional(),
+  provider: z.literal("codex"),
+  timeoutMs: plannerTimeoutSchema
+});
+
+const claudePlannerSchema = z.object({
+  claude: z.object({}).optional(),
+  model: z.string().min(1).optional(),
+  provider: z.literal("claude"),
+  timeoutMs: plannerTimeoutSchema
+});
+
 const appConfigSchema = z.object({
+  ai: z
+    .object({
+      planner: z.union([codexPlannerSchema, claudePlannerSchema]).optional()
+    })
+    .default({}),
   dir: z.string().min(1).default("issues"),
   sync: z
     .object({
@@ -192,8 +226,45 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+function assertSupportedPlannerConfig(value: unknown): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return;
+  }
+
+  const planner = (value as { ai?: { planner?: unknown } }).ai?.planner;
+  if (!planner || typeof planner !== "object" || Array.isArray(planner)) {
+    return;
+  }
+
+  const legacyPlanner = planner as { args?: unknown; command?: unknown };
+  if (legacyPlanner.command !== undefined || legacyPlanner.args !== undefined) {
+    throw new Error(
+      'Legacy ai.planner.command/args config is no longer supported. Replace it with ai.planner.provider: "codex" or "claude".'
+    );
+  }
+}
+
 function toStoredAppConfig(config: AppConfig): z.input<typeof appConfigSchema> {
   return {
+    ...(config.ai.planner
+      ? {
+          ai: {
+            planner:
+              config.ai.planner.provider === "codex"
+                ? {
+                    ...(config.ai.planner.codex ? { codex: config.ai.planner.codex } : {}),
+                    ...(config.ai.planner.model ? { model: config.ai.planner.model } : {}),
+                    provider: "codex",
+                    timeoutMs: config.ai.planner.timeoutMs
+                  }
+                : {
+                    ...(config.ai.planner.model ? { model: config.ai.planner.model } : {}),
+                    provider: "claude",
+                    timeoutMs: config.ai.planner.timeoutMs
+                  }
+          }
+        }
+      : {}),
     dir: config.dir,
     sync: config.sync
   };
@@ -201,6 +272,7 @@ function toStoredAppConfig(config: AppConfig): z.input<typeof appConfigSchema> {
 
 export function createDefaultAppConfig(): AppConfig {
   return {
+    ai: {},
     dir: "issues",
     projectIssueTypeFieldMap: {},
     userMap: {},
@@ -219,6 +291,7 @@ export async function loadAppConfig(configPath?: string): Promise<{
   const parsed = ((await readJsonFileIfPresent(absolutePath)) ?? {}) as Partial<AppConfig> & {
     files?: unknown;
   };
+  assertSupportedPlannerConfig(parsed);
   const parsedConfig = appConfigSchema.parse(parsed);
   const resolvedDir = inferLegacyDir(parsed.files) ?? parsedConfig.dir;
   const fieldMapPath = resolveGeneratedConfigPath(

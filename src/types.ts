@@ -158,7 +158,40 @@ export interface UserMapEntry {
   email?: string | undefined;
 }
 
+export type AiPlannerProvider = "claude" | "codex";
+export type AiPlannerReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
+interface BaseAiPlannerConfig {
+  model?: string | undefined;
+  provider: AiPlannerProvider;
+  timeoutMs: number;
+}
+
+export interface CodexAiPlannerConfig extends BaseAiPlannerConfig {
+  codex?: {
+    profile?: string | undefined;
+    reasoningEffort?: AiPlannerReasoningEffort | undefined;
+  } | undefined;
+  provider: "codex";
+}
+
+export interface ClaudeAiPlannerConfig extends BaseAiPlannerConfig {
+  claude?: Record<string, never> | undefined;
+  provider: "claude";
+}
+
+export type AiPlannerConfig = CodexAiPlannerConfig | ClaudeAiPlannerConfig;
+
 export interface AppConfig {
+  ai: {
+    planner?: AiPlannerConfig | undefined;
+  };
   dir: string;
   projectIssueTypeFieldMap: Record<
     string,
@@ -231,7 +264,9 @@ export const RESERVED_FRONTMATTER_KEYS = new Set([
   "issuetype",
   "issueType",
   "labels",
+  "localId",
   "parent",
+  "parentRef",
   "project",
   "status",
   "summary"

@@ -320,4 +320,51 @@ describe("cli config auto-init", () => {
     expect(stdout).not.toContain("--config");
     await expect(readFile(configPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  test("plan epic exposes a dedicated help surface", async () => {
+    const directory = await createTempDirectory();
+    const configPath = join(directory, "jira-markdown.config.json");
+
+    const { stdout, stderr } = await runCli(["plan", "epic", "--help"], {
+      env: {
+        ...process.env,
+        JIRA_MARKDOWN_CONFIG_FILE: configPath
+      }
+    });
+
+    expect(stderr).toBe("");
+    expect(stdout).toContain("Plan a new epic and write draft markdown issues under the target project.");
+    expect(stdout).toContain("--print-prompt");
+    expect(stdout).toContain("--verbose");
+    await expect(readFile(configPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("plan epic can print the assembled prompt without AI planner config", async () => {
+    const directory = await createTempDirectory();
+    const configPath = join(directory, "jira-markdown.config.json");
+    const inputPath = join(directory, "requirement.md");
+    await writeFile(inputPath, "Build a new partner onboarding experience.", "utf8");
+
+    const { stdout, stderr } = await runCli(
+      [
+        "plan",
+        "epic",
+        "--project",
+        "ENG",
+        "--input",
+        inputPath,
+        "--print-prompt",
+        "--config",
+        configPath
+      ],
+      {
+        cwd: directory
+      }
+    );
+
+    expect(stderr).toBe("");
+    expect(stdout).toContain(`Initialized starter config at ${configPath}.`);
+    expect(stdout).toContain("Target project: ENG");
+    expect(stdout).toContain("Build a new partner onboarding experience.");
+  });
 });

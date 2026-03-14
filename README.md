@@ -122,6 +122,87 @@ jira-markdown sync --project ENG --jql 'assignee = currentUser()'
 
 The first non-dry-run `push`, `pull`, or `sync` automatically discovers missing issue-type field maps and learns user labels, then writes them into `<dir>/.jira-markdown.field-map.json` and `<dir>/.jira-markdown.user-map.json`.
 
+## AI epic planning
+
+`jira-markdown` can generate a draft Epic hierarchy with an external AI CLI, then keep the markdown syntax and write-back behavior inside this tool.
+
+Add planner config to `jira-markdown.config.json`:
+
+```json
+{
+  "dir": "issues",
+  "ai": {
+    "planner": {
+      "provider": "codex",
+      "model": "gpt-5.4",
+      "codex": {
+        "reasoningEffort": "xhigh"
+      },
+      "timeoutMs": 120000
+    }
+  },
+  "sync": {
+    "createMissing": true,
+    "updateExisting": true
+  }
+}
+```
+
+Claude Code example:
+
+```json
+{
+  "dir": "issues",
+  "ai": {
+    "planner": {
+      "provider": "claude",
+      "model": "sonnet",
+      "timeoutMs": 120000
+    }
+  },
+  "sync": {
+    "createMissing": true,
+    "updateExisting": true
+  }
+}
+```
+
+Notes for Claude Code:
+
+- `jira-markdown` runs Claude Code in print mode with a JSON schema and parses Claude's JSON result envelope automatically.
+- The planner adapter disables tools by default and uses Claude's plan permission mode so the run stays non-mutating.
+
+Planner contract:
+
+- `ai.planner.provider` must be `codex` or `claude`.
+- `jira-markdown` assembles the planning prompt and invokes the matching provider adapter directly.
+- Codex runs through `codex exec` with a structured output schema and a read-only sandbox.
+- `ai.planner.codex.profile` is optional. Only set it if you already have a named Codex profile on this machine, and verify it with `codex profile list`.
+- `ai.planner.codex.reasoningEffort` is optional. When set, `jira-markdown` passes it through to Codex as `reasoning.effort`. Supported values depend on the selected model.
+- Claude Code runs through `claude -p --output-format json --json-schema ...` with tools disabled.
+- Unless you override them on the CLI, planner child issue types are inferred from the project's discovered issue types in the field map and local markdown examples.
+- The provider result must resolve to a JSON object with an `issues` array. Each issue must include `localId`, `issueType`, `summary`, and `body`. Child issues use `parentRef` to point at another `localId`.
+- Older `ai.planner.command` / `ai.planner.args` config is no longer supported.
+
+Useful planner commands:
+
+```bash
+jira-markdown plan epic --project ENG --input requirements/new-epic.md --print-prompt
+jira-markdown plan epic --project ENG --input requirements/new-epic.md
+jira-markdown plan epic --project ENG --input requirements/new-epic.md --dry-run
+jira-markdown plan epic --project ENG --input requirements/new-epic.md --verbose
+```
+
+Planner behavior:
+
+- `plan epic --print-prompt` shows the exact project-aware prompt without invoking the AI command.
+- `plan epic` hides raw provider stderr by default and prints a simple progress line before it writes drafts.
+- `plan epic --verbose` shows the provider's raw stderr stream while planning.
+- `plan epic` derives allowed child issue types from the project's field map and local issue examples, so it does not default to generic types like `Story` unless your project actually uses them.
+- `plan epic` writes draft issue files under `<dir>/<PROJECT>/_drafts/<epic-localId>/`.
+- Draft files use `localId` and `parentRef` frontmatter so the hierarchy can exist before Jira keys are assigned.
+- `push` creates those draft issues in dependency order, writes back real `issue:` and `parent:` values, removes `localId` and `parentRef`, and moves the files into the normal canonical Jira-key paths.
+
 ## Authentication
 
 Run the interactive login flow once:
@@ -331,6 +412,8 @@ Reserved top-level frontmatter keys:
 - `parent`
 - `status`
 - `fields`
+- `localId` for draft planner ids only
+- `parentRef` for draft planner parent references only
 
 Everything else is treated as candidate Jira field input and resolved through `<dir>/.jira-markdown.field-map.json`, direct field ids, or exact Jira field-name matches.
 
@@ -373,6 +456,7 @@ fields:
 - `jira-markdown config init`
 - `jira-markdown config edit`
 - `jira-markdown inspect adf GRIP-2`
+- `jira-markdown plan epic --project ENG --input requirements/new-epic.md`
 - `jira-markdown push`
 - `jira-markdown push --dry-run`
 - `jira-markdown pull --project ENG`

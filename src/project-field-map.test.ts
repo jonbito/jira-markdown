@@ -10,6 +10,7 @@ import {
 import { type AppConfig, type JiraCreateField, type JiraField } from "./types.js";
 
 const baseConfig: AppConfig = {
+  ai: {},
   dir: "issues",
   projectIssueTypeFieldMap: {
     ENG: {
